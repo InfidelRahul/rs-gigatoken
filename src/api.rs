@@ -160,7 +160,7 @@ impl SubstringMatcher {
     }
 
     /// Return `(pattern_index, start, end)` for each non-overlapping match.
-    pub fn find_iter<'h>(&self, haystack: &'h [u8]) -> impl Iterator<Item = (usize, usize, usize)> {
+    pub fn find_iter(&self, haystack: &[u8]) -> impl Iterator<Item = (usize, usize, usize)> {
         self.automaton
             .find_iter(haystack)
             .map(|m| (m.pattern().as_usize(), m.start(), m.end()))
