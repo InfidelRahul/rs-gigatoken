@@ -163,7 +163,7 @@ impl SubstringMatcher {
     pub fn find_iter<'h>(
         &self,
         haystack: &'h [u8],
-    ) -> impl Iterator<Item = (usize, usize, usize)> + 'h {
+    ) -> impl Iterator<Item = (usize, usize, usize)> {
         self.automaton
             .find_iter(haystack)
             .map(|m| (m.pattern().as_usize(), m.start(), m.end()))
