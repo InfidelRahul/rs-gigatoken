@@ -16,8 +16,9 @@
 //!           ENCODE_MB=500 cargo bench --bench encode_doc
 //!           TOKENIZER_JSON=data/qwen3_5_tokenizer.json cargo bench --bench encode_doc
 
-use gigatoken_rs::load_tokenizer::hf::load_hf_bpe;
-use gigatoken_rs::{WorkerPool, encode_docs_ragged};
+use rs_gigatoken::load_tokenizer::hf::load_hf_bpe;
+use rs_gigatoken::load_tokenizer::hub;
+use rs_gigatoken::{WorkerPool, encode_docs_ragged};
 use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -28,11 +29,45 @@ const DEFAULT_MB: usize = 2000;
 
 fn main() {
     common::allow_thp();
-    let tokenizer_json = std::env::var("TOKENIZER_JSON")
-        .unwrap_or_else(|_| "data/olmo3_tokenizer.json".to_string());
-    let tokenizer_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tokenizer_json);
-    eprintln!("Loading tokenizer from {tokenizer_path:?}...");
-    let tokenizer = load_hf_bpe(&tokenizer_path).expect("Could not load tokenizer");
+    let tokenizer_json =
+        std::env::var("TOKENIZER_JSON").unwrap_or_else(|_| "allenai/OLMo-3-1025-7B".to_string());
+
+    let tokenizer_path = {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tokenizer_json);
+
+        if path.exists() {
+            eprintln!("Loading tokenizer from {path:?}...");
+            path
+        } else if hub::looks_like_repo_id(&tokenizer_json) {
+            eprintln!(
+                "Loading tokenizer.json from HuggingFace Hub repository {tokenizer_json:?}..."
+            );
+
+            hub::hub_file(&tokenizer_json, "tokenizer.json", "main")
+                .expect("Could not fetch tokenizer.json from the HuggingFace Hub")
+        } else {
+            eprintln!("Skipping encode_doc benchmark: tokenizer not found at {path:?}.");
+            eprintln!(
+                "Set TOKENIZER_JSON to a local tokenizer.json or a HuggingFace repository ID."
+            );
+            return;
+        }
+    };
+
+    let tokenizer = match load_hf_bpe(&tokenizer_path) {
+        Ok(tokenizer) => tokenizer,
+        Err(err) => {
+            eprintln!("Skipping encode_doc benchmark: could not load tokenizer:");
+            eprintln!("{err}");
+            return;
+        }
+    };
+
+    if !common::has_owt() {
+        eprintln!("Skipping benchmark: OpenWebText dataset not found at ~/data/owt_train.txt.");
+        eprintln!("Install ~/data/owt_train.txt to run this benchmark.");
+        return;
+    }
 
     let input = common::load_owt_input(Some(DEFAULT_MB));
     let size_mb = input.len() as f64 / 1e6;

@@ -1,5 +1,7 @@
-use icu::properties::props::{EnumeratedProperty, GeneralCategory, GeneralCategoryGroup, WhiteSpace};
 use icu::properties::CodePointSetData;
+use icu::properties::props::{
+    EnumeratedProperty, GeneralCategory, GeneralCategoryGroup, WhiteSpace,
+};
 
 #[inline]
 pub(crate) fn get_general_category(c: char) -> GeneralCategory {
@@ -67,8 +69,7 @@ pub(crate) enum CharClass {
 /// White_Space set binary search that the `is_*` predicates above pay per
 /// call. Only the cache lines for scripts actually present in the input
 /// stay resident.
-static CLASS_TABLE: std::sync::LazyLock<Box<[u8]>> =
-    std::sync::LazyLock::new(build_class_table);
+static CLASS_TABLE: std::sync::LazyLock<Box<[u8]>> = std::sync::LazyLock::new(build_class_table);
 
 fn build_class_table() -> Box<[u8]> {
     use icu::properties::CodePointMapData;
@@ -88,7 +89,9 @@ fn build_class_table() -> Box<[u8]> {
         classes[*range.start() as usize..=*range.end() as usize].fill(CharClass::Whitespace as u8);
     }
     classes
-        .as_chunks::<4>().0.iter()
+        .as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| c[0] | (c[1] << 2) | (c[2] << 4) | (c[3] << 6))
         .collect()
 }
@@ -186,7 +189,9 @@ fn build_ds_class_table() -> Box<[u8]> {
             .fill(DsCharClass::Whitespace as u8);
     }
     classes
-        .as_chunks::<2>().0.iter()
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| c[0] | (c[1] << 4))
         .collect()
 }
@@ -308,7 +313,9 @@ fn o200k_classes_unpacked() -> Vec<u8> {
 /// Pack one-byte-per-codepoint classes into 4-bit nibbles, 2 per byte.
 fn pack_nibbles(classes: &[u8]) -> Box<[u8]> {
     classes
-        .as_chunks::<2>().0.iter()
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|c| c[0] | (c[1] << 4))
         .collect()
 }
@@ -451,7 +458,9 @@ mod tests {
     #[test]
     fn class_table_matches_icu() {
         for cp in 0..=char::MAX as u32 {
-            let Some(c) = char::from_u32(cp) else { continue };
+            let Some(c) = char::from_u32(cp) else {
+                continue;
+            };
             let expected = if is_letter(c) {
                 CharClass::Letter
             } else if is_number(c) {
@@ -469,7 +478,9 @@ mod tests {
     #[test]
     fn o200k_class_table_matches_icu() {
         for cp in 0..=char::MAX as u32 {
-            let Some(c) = char::from_u32(cp) else { continue };
+            let Some(c) = char::from_u32(cp) else {
+                continue;
+            };
             let gc = get_general_category(c);
             let expected = if matches!(
                 gc,
@@ -501,7 +512,9 @@ mod tests {
         use icu::properties::props::Script;
         let script = CodePointMapData::<Script>::new();
         for cp in 0..=char::MAX as u32 {
-            let Some(c) = char::from_u32(cp) else { continue };
+            let Some(c) = char::from_u32(cp) else {
+                continue;
+            };
             let k = kimi_class_of(cp);
             // Han marks base as Other (evicted from the letter brackets, so
             // only their punct-run role remains); all else keeps its class.
@@ -523,7 +536,9 @@ mod tests {
     #[test]
     fn ds_class_table_matches_icu() {
         for cp in 0..=char::MAX as u32 {
-            let Some(c) = char::from_u32(cp) else { continue };
+            let Some(c) = char::from_u32(cp) else {
+                continue;
+            };
             let gc = get_general_category(c);
             let expected = if is_gc_letter(gc) {
                 DsCharClass::Letter

@@ -308,9 +308,7 @@ impl<'a> PretokenizerIter<'a> {
                 },
                 PretokenizerState::Whitespace(prev_wslen) => match iter.whitespace_check() {
                     Ok(WhitespaceResult::AsciiSpace) => PretokenizerState::AsciiSpace,
-                    Ok(WhitespaceResult::Whitespace(wslen)) => {
-                        PretokenizerState::Whitespace(wslen)
-                    }
+                    Ok(WhitespaceResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
                     Ok(WhitespaceResult::Neither) => {
                         let saved_token =
                             &self.bytes[cur_starting..iter.pos - (prev_wslen as usize)];
@@ -328,9 +326,7 @@ impl<'a> PretokenizerIter<'a> {
                 },
                 PretokenizerState::AsciiSpace => match iter.whitespace_check() {
                     Ok(WhitespaceResult::AsciiSpace) => PretokenizerState::AsciiSpace,
-                    Ok(WhitespaceResult::Whitespace(wslen)) => {
-                        PretokenizerState::Whitespace(wslen)
-                    }
+                    Ok(WhitespaceResult::Whitespace(wslen)) => PretokenizerState::Whitespace(wslen),
                     Ok(WhitespaceResult::Neither) => {
                         let saved_token = &self.bytes[cur_starting..iter.pos - 1];
                         if saved_token.is_empty() {
@@ -362,4 +358,3 @@ impl<'a> PretokenizerIter<'a> {
         Some(Pretoken(new_pretoken))
     }
 }
-

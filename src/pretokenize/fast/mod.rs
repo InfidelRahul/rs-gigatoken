@@ -429,8 +429,12 @@ pub(crate) fn scan_other_from(bytes: &[u8], pos: usize) -> usize {
     loop {
         while p < len {
             let b = unsafe { *bytes.get_unchecked(p) };
-            if b >= 0x80 { break; }
-            if is_letter(b) || is_digit(b) || is_ascii_ws(b) { return p; }
+            if b >= 0x80 {
+                break;
+            }
+            if is_letter(b) || is_digit(b) || is_ascii_ws(b) {
+                return p;
+            }
             p += 1;
         }
         if p < len {
@@ -443,4 +447,3 @@ pub(crate) fn scan_other_from(bytes: &[u8], pos: usize) -> usize {
         return p;
     }
 }
-

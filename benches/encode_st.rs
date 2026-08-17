@@ -1,5 +1,5 @@
-use gigatoken_rs::load_tokenizer::hf::{HfTokenizer, load_hf_slice};
-use gigatoken_rs::pretokenize::FastR50kPretokenizer;
+use rs_gigatoken::load_tokenizer::hf::{HfTokenizer, load_hf_slice};
+use rs_gigatoken::pretokenize::FastR50kPretokenizer;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -11,24 +11,63 @@ fn main() {
     // HuggingFace repo id (e.g. Qwen/Qwen2-1.5B-Instruct), served from the
     // standard HF cache and downloaded into it on a miss. Encoding then runs
     // through the scheme dispatch instead of the hardcoded r50k pretokenizer.
-    let tokenizer_override = std::env::var("ENCODE_TOKENIZER").ok().map(|value| {
-        let path = PathBuf::from(&value);
-        if !path.exists() && gigatoken_rs::load_tokenizer::hub::looks_like_repo_id(&value) {
-            gigatoken_rs::load_tokenizer::hub::hub_file(&value, "tokenizer.json", "main")
-                .expect("Could not fetch tokenizer.json from the HuggingFace Hub")
-        } else {
+    let tokenizer_override = std::env::var("ENCODE_TOKENIZER").ok();
+
+    let tokenizer_spec = tokenizer_override
+        .clone()
+        .unwrap_or_else(|| "openai-community/gpt2".to_string());
+
+    let tokenizer_path = {
+        let path = PathBuf::from(&tokenizer_spec);
+
+        if path.exists() {
+            eprintln!("Loading tokenizer from {path:?}...");
             path
+        } else if rs_gigatoken::load_tokenizer::hub::looks_like_repo_id(&tokenizer_spec) {
+            eprintln!(
+                "Loading tokenizer.json from HuggingFace Hub repository {tokenizer_spec:?}..."
+            );
+
+            match rs_gigatoken::load_tokenizer::hub::hub_file(
+                &tokenizer_spec,
+                "tokenizer.json",
+                "main",
+            ) {
+                Ok(path) => path,
+                Err(err) => {
+                    eprintln!("Skipping encode_st benchmark: could not fetch tokenizer.json:");
+                    eprintln!("{err}");
+                    return;
+                }
+            }
+        } else {
+            eprintln!("Skipping encode_st benchmark: tokenizer not found at {path:?}.");
+            eprintln!(
+                "Set ENCODE_TOKENIZER to a local tokenizer.json or a HuggingFace repository ID."
+            );
+            return;
         }
-    });
-    let tokenizer_path = tokenizer_override.clone().unwrap_or_else(|| {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("data/gpt2_tokenizer.json")
-    });
+    };
+
     eprintln!("Loading tokenizer from {tokenizer_path:?}...");
-    let data = std::fs::read(&tokenizer_path).expect("Could not read tokenizer.json");
+
+    let data = match std::fs::read(&tokenizer_path) {
+        Ok(data) => data,
+        Err(err) => {
+            eprintln!("Skipping encode_st benchmark: could not read tokenizer.json:");
+            eprintln!("{err}");
+            return;
+        }
+    };
     // byte_fallback configs (Llama/gemma-style SentencePiece) dispatch to the
     // SP encode path; everything else to ByteLevel BPE, as in benches/encode.
     let tokenizer = load_hf_slice(&data).expect("Could not load tokenizer");
 
+    if !common::has_owt() {
+        eprintln!("Skipping benchmark: OpenWebText dataset not found at ~/data/owt_train.txt.");
+        eprintln!("Install ~/data/owt_train.txt to run this benchmark.");
+        return;
+    }
     let input = common::load_owt_input(None);
     let size_gb = input.len() as f64 / 1e9;
     // Encode the whole buffer in one pass (matches real usage; the pretokenizer
@@ -75,7 +114,7 @@ fn main() {
                 Ok(text) => text,
                 Err(e) => std::str::from_utf8(&buf[..e.valid_up_to()]).unwrap(),
             };
-            let mut state = gigatoken_rs::EncodeState::new();
+            let mut state = rs_gigatoken::EncodeState::new();
             for pass in 0..passes {
                 out.clear();
                 let start = Instant::now();

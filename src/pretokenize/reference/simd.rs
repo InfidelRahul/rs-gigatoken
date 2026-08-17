@@ -122,8 +122,7 @@ mod neon {
             let is_space = vceqq_u8(chunk, vdupq_n_u8(b' '));
             let is_ws = vorrq_u8(is_ws_ctrl, is_space);
             let is_high = vcgeq_u8(chunk, vdupq_n_u8(0x80));
-            let any_exclude =
-                vorrq_u8(vorrq_u8(is_letter, is_digit), vorrq_u8(is_ws, is_high));
+            let any_exclude = vorrq_u8(vorrq_u8(is_letter, is_digit), vorrq_u8(is_ws, is_high));
             vmvnq_u8(any_exclude)
         }
     }
@@ -551,8 +550,7 @@ fn count_ws_pretokens(bytes: &[u8], pos: &mut usize) -> usize {
 
     // Find start of last ws char
     let mut last_ws_start = i - 1;
-    while last_ws_start > start && unsafe { *bytes.get_unchecked(last_ws_start) } & 0xC0 == 0x80
-    {
+    while last_ws_start > start && unsafe { *bytes.get_unchecked(last_ws_start) } & 0xC0 == 0x80 {
         last_ws_start -= 1;
     }
 
@@ -615,9 +613,7 @@ impl<'a> Iterator for SimdPretokIter<'a> {
             }
             // Space at end of input
             self.pos = start + 1;
-            return Some(Pretoken(unsafe {
-                bytes.get_unchecked(start..start + 1)
-            }));
+            return Some(Pretoken(unsafe { bytes.get_unchecked(start..start + 1) }));
         }
 
         // ---- FAST PATH: ASCII letter (standalone word) ----
@@ -709,15 +705,12 @@ impl<'a> SimdPretokIter<'a> {
             } else {
                 start + 1
             };
-            return Some(Pretoken(unsafe {
-                bytes.get_unchecked(start..self.pos)
-            }));
+            return Some(Pretoken(unsafe { bytes.get_unchecked(start..self.pos) }));
         }
 
         // Find start of last ws char
         let mut last_ws_start = i - 1;
-        while last_ws_start > start
-            && unsafe { *bytes.get_unchecked(last_ws_start) } & 0xC0 == 0x80
+        while last_ws_start > start && unsafe { *bytes.get_unchecked(last_ws_start) } & 0xC0 == 0x80
         {
             last_ws_start -= 1;
         }
@@ -730,9 +723,7 @@ impl<'a> SimdPretokIter<'a> {
             } else {
                 start + 1
             };
-            return Some(Pretoken(unsafe {
-                bytes.get_unchecked(start..self.pos)
-            }));
+            return Some(Pretoken(unsafe { bytes.get_unchecked(start..self.pos) }));
         }
 
         // 2+ ws chars: emit all but last
@@ -800,10 +791,10 @@ mod tests {
     use std::cmp::min;
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn count_matches_next() {
         let data_dir = std::env::home_dir().unwrap().join("data");
-        let input =
-            std::fs::read_to_string(data_dir.join("TinyStoriesV2-GPT4-valid.txt")).unwrap();
+        let input = std::fs::read_to_string(data_dir.join("TinyStoriesV2-GPT4-valid.txt")).unwrap();
         let input_bytes = input.as_bytes();
 
         let next_count = SimdPretokIter::new(input_bytes).fold(0usize, |c, _| c + 1);
@@ -815,10 +806,10 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn simd_matches_fast() {
         let data_dir = std::env::home_dir().unwrap().join("data");
-        let input =
-            std::fs::read_to_string(data_dir.join("TinyStoriesV2-GPT4-valid.txt")).unwrap();
+        let input = std::fs::read_to_string(data_dir.join("TinyStoriesV2-GPT4-valid.txt")).unwrap();
         let input_bytes = input.as_bytes();
 
         let standard = crate::pretokenize::pretokenize_as_iter(input_bytes);
@@ -828,10 +819,9 @@ mod tests {
             match eorb {
                 itertools::EitherOrBoth::Both(a, b) => {
                     if a.0 != b.0 {
-                        let a_offset =
-                            a.0.as_ptr() as usize - input_bytes.as_ptr() as usize;
-                        let region = &input_bytes[a_offset.saturating_sub(32)
-                            ..min(input_bytes.len(), a_offset + 64)];
+                        let a_offset = a.0.as_ptr() as usize - input_bytes.as_ptr() as usize;
+                        let region = &input_bytes
+                            [a_offset.saturating_sub(32)..min(input_bytes.len(), a_offset + 64)];
                         panic!(
                             "Mismatch at byte {a_offset}:\n  standard: {:?}\n  simd:     {:?}\n  context:  {:?}",
                             String::from_utf8_lossy(a.0),

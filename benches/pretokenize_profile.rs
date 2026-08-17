@@ -2,12 +2,17 @@
 //! single-pass `main` (no criterion, no BPE encode) that `black_box`es every
 //! yielded pretoken slice, so the slice production can't be optimized away.
 
-use gigatoken_rs::pretokenize::FastR50kPretokenizer;
+use rs_gigatoken::pretokenize::FastR50kPretokenizer;
 use std::hint::black_box;
 use std::time::Instant;
 
 mod common;
 fn main() {
+    if !common::has_owt() {
+        eprintln!("Skipping benchmark: OpenWebText dataset not found at ~/data/owt_train.txt.");
+        eprintln!("Install ~/data/owt_train.txt to run this benchmark.");
+        return;
+    }
     let input = common::load_owt_input(None);
     let size_gb = input.len() as f64 / 1e9;
 

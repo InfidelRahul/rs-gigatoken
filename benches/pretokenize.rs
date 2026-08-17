@@ -1,34 +1,50 @@
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 #[cfg(all(
     target_arch = "x86_64",
     target_feature = "avx512bw",
     target_feature = "avx512vl"
 ))]
-use gigatoken_rs::pretokenize::reference::avx512::Avx512PretokenizerIter;
-use gigatoken_rs::pretokenize::{
-    reference::combinator::pretokens_iterator, FastCl100kPretokenizer, FastQwen2Pretokenizer,
-    FastQwen35Pretokenizer, FastR50kPretokenizer, PretokenizerIter,
+use rs_gigatoken::pretokenize::reference::avx512::Avx512PretokenizerIter;
+use rs_gigatoken::pretokenize::reference::simd::SimdPretokIter;
+use rs_gigatoken::pretokenize::{
+    FastCl100kPretokenizer, FastQwen2Pretokenizer, FastQwen35Pretokenizer, FastR50kPretokenizer,
+    PretokenizerIter, reference::combinator::pretokens_iterator,
 };
-use gigatoken_rs::pretokenize::reference::simd::SimdPretokIter;
 use std::hint::black_box;
 
 const TARGET_BENCH_SIZE: usize = 100_000_000; // ~100 MB
 
 /// Load OWT data, truncated to a UTF-8-safe boundary near `max_bytes`.
-fn load_owt(max_bytes: usize) -> Vec<u8> {
+fn load_owt(max_bytes: usize) -> Option<Vec<u8>> {
     let data_dir = std::env::home_dir().unwrap().join("data");
-    let all_bytes =
-        std::fs::read(data_dir.join("owt_train.txt")).expect("Could not read ~/data/owt_train.txt");
+    let path = data_dir.join("owt_train.txt");
+
+    if !path.exists() {
+        eprintln!("Skipping pretokenize benchmark: OpenWebText dataset not found at {path:?}.");
+        eprintln!("Install ~/data/owt_train.txt to run the benchmark.");
+        return None;
+    }
+
+    let all_bytes = match std::fs::read(&path) {
+        Ok(data) => data,
+        Err(err) => {
+            eprintln!("Skipping pretokenize benchmark: could not read {path:?}: {err}");
+            return None;
+        }
+    };
+
     let mut end = max_bytes.min(all_bytes.len());
     // Back up to a UTF-8 character boundary
     while end > 0 && !std::str::from_utf8(&all_bytes[..end]).is_ok() {
         end -= 1;
     }
-    all_bytes[..end].to_vec()
+    Some(all_bytes[..end].to_vec())
 }
 
 fn pretokenize_benches(c: &mut Criterion) {
-    let input = load_owt(TARGET_BENCH_SIZE);
+    let Some(input) = load_owt(TARGET_BENCH_SIZE) else {
+        return;
+    };
     let input_len = input.len() as u64;
     eprintln!("Benchmark input size: {:.1} MB", input_len as f64 / 1e6);
 

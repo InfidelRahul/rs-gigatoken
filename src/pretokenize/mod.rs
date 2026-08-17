@@ -13,11 +13,9 @@
 //! - `Pretokenize` trait: `doc.pretokens()` on any `&[u8]`
 //! - `pretokenize_par_bytes`: parallel pretokenization with document splitting and counting
 
-pub(crate) use crate::pretokenize::pretoken::Pretoken;
-use crate::pretokenize::pretokenize_traits::{
-    ParallelMergeCounts, PretokenCountable,
-};
 use crate::input::Resource;
+pub(crate) use crate::pretokenize::pretoken::Pretoken;
+use crate::pretokenize::pretokenize_traits::{ParallelMergeCounts, PretokenCountable};
 use rayon::prelude::*;
 use std::collections::HashMap;
 
@@ -65,8 +63,16 @@ pub const PRETOKEN_CHUNK: usize = 256;
 pub(crate) const fn pack_mask_halves(n: usize) -> (u64, u64) {
     debug_assert!(n >= 1 && n <= 15);
     let s = (n * 8) as u32;
-    let lo = if n < 8 { u64::MAX >> (64u32.wrapping_sub(s) & 63) } else { u64::MAX };
-    let hi = if n > 8 { u64::MAX >> (128u32.wrapping_sub(s) & 63) } else { 0 };
+    let lo = if n < 8 {
+        u64::MAX >> (64u32.wrapping_sub(s) & 63)
+    } else {
+        u64::MAX
+    };
+    let hi = if n > 8 {
+        u64::MAX >> (128u32.wrapping_sub(s) & 63)
+    } else {
+        0
+    };
     (lo, hi)
 }
 
@@ -162,7 +168,10 @@ pub(crate) fn pretoken_key_hash(key: u128) -> u64 {
             pretoken_key_hash_fold(key)
         }
     }
-    #[cfg(not(any(all(target_arch = "aarch64", target_feature = "crc"), target_arch = "x86_64")))]
+    #[cfg(not(any(
+        all(target_arch = "aarch64", target_feature = "crc"),
+        target_arch = "x86_64"
+    )))]
     {
         pretoken_key_hash_fold(key)
     }
@@ -303,7 +312,11 @@ impl BatchEntry {
     /// Span length, independent of the short/long route.
     #[inline(always)]
     pub(crate) fn span_len(&self) -> usize {
-        if self.key != 0 { (self.key >> 120) as usize } else { self.meta as usize }
+        if self.key != 0 {
+            (self.key >> 120) as usize
+        } else {
+            self.meta as usize
+        }
     }
 }
 
@@ -330,8 +343,11 @@ pub struct SpanBatch<'a> {
 impl<'a> SpanBatch<'a> {
     pub fn new() -> Self {
         SpanBatch {
-            entries: [BatchEntry { key: 0, ptr: std::ptr::null(), meta: 0 };
-                PRETOKEN_CHUNK + SPAN_BATCH_SLACK],
+            entries: [BatchEntry {
+                key: 0,
+                ptr: std::ptr::null(),
+                meta: 0,
+            }; PRETOKEN_CHUNK + SPAN_BATCH_SLACK],
             _spans: std::marker::PhantomData,
         }
     }
@@ -427,7 +443,11 @@ pub(crate) fn fill_spans_keyed_with<'a>(
         // Long (and empty) spans record their length; short spans their
         // hash (see `BatchEntry::meta`).
         let meta = if key != 0 { h } else { span.len() as u64 };
-        batch.entries[n] = BatchEntry { key, ptr: span.as_ptr(), meta };
+        batch.entries[n] = BatchEntry {
+            key,
+            ptr: span.as_ptr(),
+            meta,
+        };
         n += 1;
     }
     n
@@ -524,7 +544,11 @@ fn fill_spans_keyed_with_buf_impl<'a, const X86_CRC: bool>(
         // Long spans record their length instead of the (unused) hash —
         // see `BatchEntry::meta`.
         let meta = if long { len as u64 } else { h };
-        batch.entries[n] = BatchEntry { key, ptr: span.as_ptr(), meta };
+        batch.entries[n] = BatchEntry {
+            key,
+            ptr: span.as_ptr(),
+            meta,
+        };
         n += 1;
     }
     n
@@ -677,11 +701,7 @@ pub fn pretokenize_par_bytes<'a>(
 
     let merged_counts = chunks
         .into_par_iter()
-        .map(|doc_iter| {
-            doc_iter
-                .flat_map(|doc| doc.pretokens())
-                .pretoken_count()
-        })
+        .map(|doc_iter| doc_iter.flat_map(|doc| doc.pretokens()).pretoken_count())
         .par_merge_counts();
 
     let time_elapsed = start_time.elapsed();
@@ -689,7 +709,6 @@ pub fn pretokenize_par_bytes<'a>(
 
     merged_counts
 }
-
 
 #[cfg(test)]
 mod test {
@@ -717,11 +736,16 @@ mod test {
     /// for every supported scheme: pretokenizing the ranges independently and
     /// concatenating must equal pretokenizing the whole input in one pass.
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn test_safe_split_ranges_pretoken_equivalent() {
         let input = load_owt(2_000_000);
 
         let ranges = safe_split_ranges(&input, 10_000, &[]);
-        assert!(ranges.len() > 100, "expected many splits, got {}", ranges.len());
+        assert!(
+            ranges.len() > 100,
+            "expected many splits, got {}",
+            ranges.len()
+        );
         // Ranges must cover the input contiguously.
         assert_eq!(ranges.first().unwrap().start, 0);
         assert_eq!(ranges.last().unwrap().end, input.len());
@@ -781,21 +805,27 @@ mod test {
         let input = lcg_words(special, b"", 9);
 
         let ranges = safe_split_ranges(&input, 300, &[(special, false)]);
-        assert!(ranges.len() > 50, "expected many splits, got {}", ranges.len());
+        assert!(
+            ranges.len() > 50,
+            "expected many splits, got {}",
+            ranges.len()
+        );
         assert_eq!(ranges.first().unwrap().start, 0);
         assert_eq!(ranges.last().unwrap().end, input.len());
         for w in ranges.windows(2) {
             assert_eq!(w[0].end, w[1].start);
         }
 
-        let occurrences: Vec<usize> =
-            memchr::memmem::find_iter(&input, special).collect();
+        let occurrences: Vec<usize> = memchr::memmem::find_iter(&input, special).collect();
         assert!(!occurrences.is_empty());
-        let cuts_occurrence = |p: usize| {
-            occurrences.iter().any(|&s| s < p && s + special.len() > p)
-        };
+        let cuts_occurrence =
+            |p: usize| occurrences.iter().any(|&s| s < p && s + special.len() > p);
         for r in &ranges[1..] {
-            assert!(!cuts_occurrence(r.start), "boundary {} cuts an occurrence", r.start);
+            assert!(
+                !cuts_occurrence(r.start),
+                "boundary {} cuts an occurrence",
+                r.start
+            );
         }
 
         // The input must actually tempt the splitter: without the
@@ -817,9 +847,17 @@ mod test {
         let ends_at = |p: usize| p >= special.len() && &input[p - special.len()..p] == special;
 
         let ranges = safe_split_ranges(&input, 200, &[(special, true)]);
-        assert!(ranges.len() > 50, "expected many splits, got {}", ranges.len());
+        assert!(
+            ranges.len() > 50,
+            "expected many splits, got {}",
+            ranges.len()
+        );
         for r in &ranges[1..] {
-            assert!(!ends_at(r.start), "boundary {} follows an rstrip token", r.start);
+            assert!(
+                !ends_at(r.start),
+                "boundary {} follows an rstrip token",
+                r.start
+            );
         }
 
         // The input must actually tempt the splitter: without the rstrip
@@ -834,6 +872,7 @@ mod test {
     /// Compare the production (fast r50k) pretokenizer against the GPT-2
     /// reference regex on ~5 MB of OWT data, token by token.
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn test_pretokenizer_matches_regex_owt() {
         const SIZE: usize = 5_000_000;
         let input = load_owt(SIZE);
@@ -861,9 +900,13 @@ mod test {
                         recent.remove(0);
                     }
                     assert_eq!(
-                        fast_str, re_str,
+                        fast_str,
+                        re_str,
                         "Mismatch at token {token_idx} (byte ~{}).\n  fast:  {:?}\n  regex: {:?}\n  recent tokens: {:?}",
-                        re_match.start(), fast_str, re_str, recent
+                        re_match.start(),
+                        fast_str,
+                        re_str,
+                        recent
                     );
                 }
                 (None, None) => break,
@@ -889,6 +932,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn test_pretokenizer_ts() {
         let data_dir = std::env::home_dir().unwrap().join("data");
         let file_bytes = fs::read(data_dir.join("TinyStoriesV2-GPT4-train.txt")).unwrap();
@@ -905,6 +949,7 @@ mod test {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn test_pretokenizer_owt_length() {
         let data_dir = std::env::home_dir().unwrap().join("data");
         let file_bytes = fs::read(data_dir.join("owt_train.txt")).unwrap();
@@ -928,9 +973,7 @@ mod span_source_tests {
         let mut batch = SpanBatch::new();
         let prefetched = std::cell::Cell::new(0usize);
         loop {
-            let n = src.fill_spans_keyed(&mut batch, &|_h| {
-                prefetched.set(prefetched.get() + 1)
-            });
+            let n = src.fill_spans_keyed(&mut batch, &|_h| prefetched.set(prefetched.get() + 1));
             for i in 0..n {
                 // SAFETY: i < n, the count just returned by the fill.
                 let span = unsafe { batch.span(i) };
@@ -952,15 +995,16 @@ mod span_source_tests {
                 break;
             }
         }
-        assert_eq!(prefetched.get(), got.len(), "{scheme}: one prefetch per span");
         assert_eq!(
+            prefetched.get(),
             got.len(),
-            expected.len(),
-            "{scheme}: span count mismatch"
+            "{scheme}: one prefetch per span"
         );
+        assert_eq!(got.len(), expected.len(), "{scheme}: span count mismatch");
         for (i, (g, e)) in got.iter().zip(&expected).enumerate() {
             assert_eq!(
-                g, e,
+                g,
+                e,
                 "{scheme}: span {i} diverged: {:?} vs {:?}",
                 String::from_utf8_lossy(g),
                 String::from_utf8_lossy(e)
@@ -970,19 +1014,31 @@ mod span_source_tests {
 
     /// [`check_source`] for every mask-scanner scheme on `b`.
     fn check_all_mask_schemes(b: &[u8]) {
-        check_source(FastR50kPretokenizer::new(b), FastR50kPretokenizer::new(b), "r50k");
+        check_source(
+            FastR50kPretokenizer::new(b),
+            FastR50kPretokenizer::new(b),
+            "r50k",
+        );
         check_source(
             FastCl100kPretokenizer::new(b),
             FastCl100kPretokenizer::new(b),
             "cl100k",
         );
-        check_source(FastQwen2Pretokenizer::new(b), FastQwen2Pretokenizer::new(b), "qwen2");
+        check_source(
+            FastQwen2Pretokenizer::new(b),
+            FastQwen2Pretokenizer::new(b),
+            "qwen2",
+        );
         check_source(
             FastQwen35Pretokenizer::new(b),
             FastQwen35Pretokenizer::new(b),
             "qwen3_5",
         );
-        check_source(FastOlmo3Pretokenizer::new(b), FastOlmo3Pretokenizer::new(b), "olmo3");
+        check_source(
+            FastOlmo3Pretokenizer::new(b),
+            FastOlmo3Pretokenizer::new(b),
+            "olmo3",
+        );
         check_source(
             FastDeepSeekV3Pretokenizer::new(b),
             FastDeepSeekV3Pretokenizer::new(b),
@@ -998,10 +1054,34 @@ mod span_source_tests {
     #[test]
     fn fill_spans_keyed_matches_iterator_all_schemes() {
         let pieces: &[&str] = &[
-            "word", " word", "12", " 345678", "'ll", "'s", " ", "  ", "\n", "\r\n", "\t",
-            "!", " ?!", "(", "caf\u{e9}", "\u{65e5}\u{672c}", "\u{1F389}", "\u{00A0}",
-            "\u{2003}", "a", " I", "don't", "one two three four five", "\u{4e2d}\u{6587}",
-            "\u{30ab}\u{30bf}", "123456", " longpretokenword", "supercalifragilistic",
+            "word",
+            " word",
+            "12",
+            " 345678",
+            "'ll",
+            "'s",
+            " ",
+            "  ",
+            "\n",
+            "\r\n",
+            "\t",
+            "!",
+            " ?!",
+            "(",
+            "caf\u{e9}",
+            "\u{65e5}\u{672c}",
+            "\u{1F389}",
+            "\u{00A0}",
+            "\u{2003}",
+            "a",
+            " I",
+            "don't",
+            "one two three four five",
+            "\u{4e2d}\u{6587}",
+            "\u{30ab}\u{30bf}",
+            "123456",
+            " longpretokenword",
+            "supercalifragilistic",
         ];
         let mut state = 0x9E3779B97F4A7C15u64;
         let mut rng = move || {

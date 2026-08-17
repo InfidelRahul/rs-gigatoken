@@ -5,19 +5,38 @@ use std::hint::black_box;
 const TARGET_BENCH_SIZE: usize = 100_000_000; // ~100 MB
 
 /// Load OWT data, truncated to a UTF-8-safe boundary near `max_bytes`.
-fn load_owt(max_bytes: usize) -> Vec<u8> {
+fn load_owt(max_bytes: usize) -> Option<Vec<u8>> {
     let data_dir = std::env::home_dir().unwrap().join("data");
-    let all_bytes =
-        std::fs::read(data_dir.join("owt_train.txt")).expect("Could not read ~/data/owt_train.txt");
+    let owt_path = std::env::home_dir().unwrap().join("data/owt_train.txt");
+
+    if !owt_path.exists() {
+        eprintln!("Skipping benchmark: OpenWebText dataset not found at {owt_path:?}.");
+
+        eprintln!("Install ~/data/owt_train.txt to run the benchmark.");
+
+        return None;
+    }
+
+    let all_bytes = match std::fs::read(data_dir.join("owt_train.txt")) {
+        Ok(data) => data,
+
+        Err(err) => {
+            eprintln!("Skipping benchmark: could not read {owt_path:?}: {err}");
+
+            return None;
+        }
+    };
     let mut end = max_bytes.min(all_bytes.len());
     while end > 0 && std::str::from_utf8(&all_bytes[..end]).is_err() {
         end -= 1;
     }
-    all_bytes[..end].to_vec()
+    Some(all_bytes[..end].to_vec())
 }
 
 fn simdutf_transcode_benches(c: &mut Criterion) {
-    let input = load_owt(TARGET_BENCH_SIZE);
+    let Some(input) = load_owt(TARGET_BENCH_SIZE) else {
+        return;
+    };
     let input_len = input.len() as u64;
     eprintln!("Benchmark input size: {:.1} MB", input_len as f64 / 1e6);
 

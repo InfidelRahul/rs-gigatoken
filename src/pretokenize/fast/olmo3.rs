@@ -16,8 +16,8 @@ use super::cl100k_family::batch_masks;
 use super::cl100k_family::batch_masks_x86;
 use super::mask::{MaskScheme, MaskState};
 use super::{
-    decode_cp, is_ascii_ws, is_digit, is_letter, letter_end_at, scan_letters_from,
-    scan_newlines, scan_numbers_max3, scan_other_from,
+    decode_cp, is_ascii_ws, is_digit, is_letter, letter_end_at, scan_letters_from, scan_newlines,
+    scan_numbers_max3, scan_other_from,
 };
 use crate::pretokenize::Pretoken;
 use crate::pretokenize::unicode::{self, CharClass};
@@ -68,7 +68,10 @@ impl<'a> FastOlmo3Pretokenizer<'a> {
     /// Resume iteration at a byte offset previously returned by [`Self::pos`].
     #[inline]
     pub fn with_pos(bytes: &'a [u8], pos: usize) -> Self {
-        Self { bytes, state: MaskState::new(pos) }
+        Self {
+            bytes,
+            state: MaskState::new(pos),
+        }
     }
 
     /// Current position as a byte offset into the input.
@@ -258,8 +261,7 @@ mod tests {
 
     /// The Olmo3/dolma2 pattern verbatim — no possessive quantifiers, so it
     /// runs directly under fancy-regex.
-    const OLMO3_REF_REGEX: &str =
-        r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
+    const OLMO3_REF_REGEX: &str = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
 
     fn regex_tokens(s: &str) -> Vec<String> {
         let re = fancy_regex::Regex::new(OLMO3_REF_REGEX).unwrap();
@@ -379,6 +381,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn olmo3_matches_regex_owt() {
         const SIZE: usize = 5_000_000;
         let input = load_owt_prefix(SIZE);
@@ -405,9 +408,13 @@ mod tests {
                         recent.remove(0);
                     }
                     assert_eq!(
-                        fast_str, re_str,
+                        fast_str,
+                        re_str,
                         "Mismatch at token {token_idx} (byte ~{}).\n  fast:  {:?}\n  regex: {:?}\n  recent tokens: {:?}",
-                        re_match.start(), fast_str, re_str, recent
+                        re_match.start(),
+                        fast_str,
+                        re_str,
+                        recent
                     );
                 }
                 (None, None) => break,

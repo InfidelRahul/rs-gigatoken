@@ -20,11 +20,11 @@ use super::cl100k_family::batch_masks;
 use super::cl100k_family::batch_masks_x86;
 use super::mask::{MaskScheme, MaskState};
 use super::{
-    decode_cp, is_ascii_ws, is_digit, is_letter, letter_end_at, scan_letters_from,
-    scan_newlines, scan_numbers_max3, scan_other_from,
+    decode_cp, is_ascii_ws, is_digit, is_letter, letter_end_at, scan_letters_from, scan_newlines,
+    scan_numbers_max3, scan_other_from,
 };
-use crate::pretokenize::unicode::{self, CharClass};
 use crate::pretokenize::Pretoken;
+use crate::pretokenize::unicode::{self, CharClass};
 
 pub(crate) struct Cl100kScheme;
 
@@ -72,7 +72,10 @@ impl<'a> FastCl100kPretokenizer<'a> {
     /// Resume iteration at a byte offset previously returned by [`Self::pos`].
     #[inline]
     pub fn with_pos(bytes: &'a [u8], pos: usize) -> Self {
-        Self { bytes, state: MaskState::new(pos) }
+        Self {
+            bytes,
+            state: MaskState::new(pos),
+        }
     }
 
     /// Current position as a byte offset into the input.
@@ -373,6 +376,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn cl100k_matches_regex_owt() {
         const SIZE: usize = 5_000_000;
         let input = load_owt_prefix(SIZE);
@@ -399,9 +403,13 @@ mod tests {
                         recent.remove(0);
                     }
                     assert_eq!(
-                        fast_str, re_str,
+                        fast_str,
+                        re_str,
                         "Mismatch at token {token_idx} (byte ~{}).\n  fast:  {:?}\n  regex: {:?}\n  recent tokens: {:?}",
-                        re_match.start(), fast_str, re_str, recent
+                        re_match.start(),
+                        fast_str,
+                        re_str,
+                        recent
                     );
                 }
                 (None, None) => break,

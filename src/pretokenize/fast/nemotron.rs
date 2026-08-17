@@ -49,7 +49,10 @@ impl<'a> FastNemotronPretokenizer<'a> {
     /// Resume iteration at a byte offset previously returned by [`Self::pos`].
     #[inline]
     pub fn with_pos(bytes: &'a [u8], pos: usize) -> Self {
-        Self { bytes, state: MaskState::new(pos) }
+        Self {
+            bytes,
+            state: MaskState::new(pos),
+        }
     }
 
     /// Current position as a byte offset into the input.
@@ -111,13 +114,13 @@ mod tests {
     fn nemotron_matches_regex_random() {
         use rand::prelude::*;
         let pools: &[&[char]] = &[
-            &['a', 'z', 'é', 'ß', 'ж', 'ا', '한', '日'],      // lower/caseless
-            &['A', 'Z', 'É', 'Ж', 'Ǆ', 'ǅ'],                  // upper/title
-            &['1', '9', '٢', '½', 'Ⅷ', '๕'],                // numbers
-            &[' ', '\t', '\n', '\r', '\u{a0}', '\u{2028}'],   // whitespace
-            &['\u{301}', '\u{5bf}', '\u{93b}', '\u{20dd}'],   // marks
+            &['a', 'z', 'é', 'ß', 'ж', 'ا', '한', '日'], // lower/caseless
+            &['A', 'Z', 'É', 'Ж', 'Ǆ', 'ǅ'],             // upper/title
+            &['1', '9', '٢', '½', 'Ⅷ', '๕'],             // numbers
+            &[' ', '\t', '\n', '\r', '\u{a0}', '\u{2028}'], // whitespace
+            &['\u{301}', '\u{5bf}', '\u{93b}', '\u{20dd}'], // marks
             &['.', ',', '!', '$', '\'', '«', '¡', '€', '☃', '/'], // punct/symbols
-            &['\u{0}', '\u{ad}', '\u{200b}', '\u{e0001}'],    // other (C*)
+            &['\u{0}', '\u{ad}', '\u{200b}', '\u{e0001}'], // other (C*)
         ];
         let mut rng = StdRng::seed_from_u64(0x93E3_5EEE);
         for round in 0..3000 {

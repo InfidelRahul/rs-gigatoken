@@ -267,17 +267,11 @@ pub fn train_bpe<K: AsRef<[u8]> + Eq + Hash>(
                 TieBreaking::HuggingFace => {
                     // Remap initial byte token IDs to HF's ByteLevel unicode
                     // codepoint ordering before comparison.
-                    let remap = |id: u32| -> u32 {
-                        if id < 256 {
-                            hf_rank[id as usize]
-                        } else {
-                            id
-                        }
-                    };
+                    let remap =
+                        |id: u32| -> u32 { if id < 256 { hf_rank[id as usize] } else { id } };
                     for &pair in &tied_pairs {
                         let remapped = (remap(pair.0), remap(pair.1));
-                        let remapped_smallest =
-                            (remap(smallest_pair.0), remap(smallest_pair.1));
+                        let remapped_smallest = (remap(smallest_pair.0), remap(smallest_pair.1));
                         if remapped < remapped_smallest {
                             smallest_pair = pair;
                         }
@@ -291,9 +285,8 @@ pub fn train_bpe<K: AsRef<[u8]> + Eq + Hash>(
                     }
                 }
                 TieBreaking::AssembledBytes => {
-                    let assemble_pair = |(p0, p1)| {
-                        (assemble_token(p0, &symbols), assemble_token(p1, &symbols))
-                    };
+                    let assemble_pair =
+                        |(p0, p1)| (assemble_token(p0, &symbols), assemble_token(p1, &symbols));
                     for pair in tied_pairs.iter().copied() {
                         if assemble_pair(pair) < assemble_pair(smallest_pair) {
                             smallest_pair = pair;

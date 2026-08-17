@@ -55,10 +55,7 @@ fn open_reader(
             .collect();
         return Err(parquet_err(
             path,
-            format!(
-                "no column {column:?} (available: {})",
-                available.join(", ")
-            ),
+            format!("no column {column:?} (available: {})", available.join(", ")),
         ));
     }
     let mask = ProjectionMask::columns(builder.parquet_schema(), [column]);

@@ -22,8 +22,8 @@ use super::cl100k_family::batch_masks;
 use super::cl100k_family::batch_masks_x86;
 use super::mask::{MaskScheme, MaskState};
 use super::{decode_cp, is_ascii_ws, is_digit, is_letter, scan_newlines, swar_scan_letters};
-use crate::pretokenize::unicode::{self, DsCharClass, ds_class_of};
 use crate::pretokenize::Pretoken;
+use crate::pretokenize::unicode::{self, DsCharClass, ds_class_of};
 
 pub(crate) struct Qwen35Scheme;
 
@@ -49,7 +49,9 @@ impl MaskScheme for Qwen35Scheme {
         // path's per-char classify is then a bare slice index.
         let ct = unicode::DsClassTable::get();
         // SAFETY: the caller detected the tier (trait contract).
-        unsafe { batch_masks_x86::<AVX512>(bytes, scan, false, move |cp| ct.class_of_marks_join(cp)) }
+        unsafe {
+            batch_masks_x86::<AVX512>(bytes, scan, false, move |cp| ct.class_of_marks_join(cp))
+        }
     }
 }
 
@@ -71,7 +73,10 @@ impl<'a> FastQwen35Pretokenizer<'a> {
     /// Resume iteration at a byte offset previously returned by [`Self::pos`].
     #[inline]
     pub fn with_pos(bytes: &'a [u8], pos: usize) -> Self {
-        Self { bytes, state: MaskState::new(pos) }
+        Self {
+            bytes,
+            state: MaskState::new(pos),
+        }
     }
 
     /// Current position as a byte offset into the input.
@@ -322,8 +327,7 @@ mod tests {
 
     /// The Qwen3.5 pattern verbatim — it contains no possessive quantifiers,
     /// so it runs directly under fancy-regex.
-    const QWEN35_REF_REGEX: &str =
-        r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+|\p{N}| ?[^\s\p{L}\p{M}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
+    const QWEN35_REF_REGEX: &str = r"(?i:'s|'t|'re|'ve|'m|'ll|'d)|[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+|\p{N}| ?[^\s\p{L}\p{M}\p{N}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+";
 
     fn regex_tokens(s: &str) -> Vec<String> {
         let re = fancy_regex::Regex::new(QWEN35_REF_REGEX).unwrap();
@@ -463,12 +467,12 @@ mod tests {
     fn qwen35_matches_regex_random() {
         use rand::prelude::*;
         let pools: &[&[char]] = &[
-            &['a', 'Z', 'é', 'ß', 'Ж', 'ا', '한', '日'],      // letters
+            &['a', 'Z', 'é', 'ß', 'Ж', 'ا', '한', '日'],    // letters
             &['1', '9', '٢', '½', 'Ⅷ', '๕'],                // numbers
-            &[' ', '\t', '\n', '\r', '\u{a0}', '\u{2028}'],   // whitespace
-            &['\u{301}', '\u{5bf}', '\u{93b}', '\u{20dd}'],   // marks
+            &[' ', '\t', '\n', '\r', '\u{a0}', '\u{2028}'], // whitespace
+            &['\u{301}', '\u{5bf}', '\u{93b}', '\u{20dd}'], // marks
             &['.', ',', '!', '$', '\'', '«', '¡', '€', '☃'], // punct/symbols
-            &['\u{0}', '\u{ad}', '\u{200b}', '\u{e0001}'],    // other (C*)
+            &['\u{0}', '\u{ad}', '\u{200b}', '\u{e0001}'],  // other (C*)
         ];
         let mut rng = StdRng::seed_from_u64(0x93E3_5EEC);
         for round in 0..2000 {
@@ -488,6 +492,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn qwen35_matches_regex_owt() {
         const SIZE: usize = 5_000_000;
         let input = load_owt_prefix(SIZE);
@@ -514,9 +519,13 @@ mod tests {
                         recent.remove(0);
                     }
                     assert_eq!(
-                        fast_str, re_str,
+                        fast_str,
+                        re_str,
                         "Mismatch at token {token_idx} (byte ~{}).\n  fast:  {:?}\n  regex: {:?}\n  recent tokens: {:?}",
-                        re_match.start(), fast_str, re_str, recent
+                        re_match.start(),
+                        fast_str,
+                        re_str,
+                        recent
                     );
                 }
                 (None, None) => break,

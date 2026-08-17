@@ -1,15 +1,15 @@
 use crate::pretokenize::Pretoken;
 use crate::pretokenize::fast::{
     FastCl100kPretokenizer, FastDeepSeekV3Pretokenizer, FastKimiPretokenizer,
-    FastNemotronPretokenizer, FastO200kPretokenizer, FastOlmo3Pretokenizer,
-    FastQwen2Pretokenizer, FastQwen35Pretokenizer, FastR50kPretokenizer,
+    FastNemotronPretokenizer, FastO200kPretokenizer, FastOlmo3Pretokenizer, FastQwen2Pretokenizer,
+    FastQwen35Pretokenizer, FastR50kPretokenizer,
 };
 
 /// Which pretokenization scheme (regex) a tokenizer uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PretokenizerType {
-    GPT2, // Also used by llama, also known as r50k
-    GPT4, // cl100k
+    GPT2,       // Also used by llama, also known as r50k
+    GPT4,       // cl100k
     Qwen2,      // Slightly adapted from GPT4, also used by Qwen3
     Qwen35,     // Qwen2 with `[\p{L}\p{M}]+` letter runs, marks excluded from punct runs
     Olmo3,      // dolma2: Qwen2 scheme with cl100k's \p{N}{1,3}; used by Olmo 2/3
@@ -83,7 +83,7 @@ impl PretokenizerType {
 
     /// The scheme named by a lowercase identifier, as used by loaders whose
     /// source format carries no split regex (e.g. tiktoken-rank repos, whose
-    /// regex lives in remote code) and the Python bindings. Accepts each
+    /// regex lives in remote code) and the public Rust API. Accepts each
     /// canonical name from [`Self::NAMES`] plus the common tiktoken aliases.
     pub fn from_name(name: &str) -> Option<Self> {
         Some(match name {
@@ -200,4 +200,3 @@ unsafe impl<'a> crate::pretokenize::PretokenSpans<'a> for FastPretokenizerDispat
         }
     }
 }
-

@@ -363,9 +363,7 @@ fn pretoken<'a>(input: &mut &'a str) -> ModalResult<Pretoken<'a>> {
             match bytes.get(1) {
                 Some(&b) if b.is_ascii_alphabetic() => letter_run(input)?,
                 Some(&b) if b.is_ascii_digit() => number_run(input)?,
-                Some(&b) if !b.is_ascii_whitespace() && b < 0x80 => {
-                    other_run(input)?
-                }
+                Some(&b) if !b.is_ascii_whitespace() && b < 0x80 => other_run(input)?,
                 Some(&b) if b >= 0x80 => {
                     let c = unsafe { decode_non_ascii(&bytes[1..]) };
                     if unicode::is_letter(c) {
@@ -489,8 +487,7 @@ mod tests {
             assert_eq!(combinator, expected, "combinator mismatch for {case:?}");
 
             let mut fast: Vec<String> = Vec::new();
-            let mut it =
-                crate::pretokenize::fast::FastR50kPretokenizer::new(case.as_bytes());
+            let mut it = crate::pretokenize::fast::FastR50kPretokenizer::new(case.as_bytes());
             for p in it {
                 fast.push(String::from_utf8(p.as_ref().to_vec()).unwrap());
             }
@@ -508,6 +505,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn combinator_compare() {
         let data_dir = std::env::home_dir().unwrap().join("data");
         let input = std::fs::read_to_string(data_dir.join("TinyStoriesV2-GPT4-valid.txt")).unwrap();

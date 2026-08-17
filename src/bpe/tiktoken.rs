@@ -1,15 +1,15 @@
+#[cfg(target_arch = "aarch64")]
+use crate::bpe::bpe_merge_symbols_short_neon;
 use crate::bpe::pretoken_cache::ShortPretokenCache;
 use crate::bpe::{
     ByteRemapping, MergeScratch, PairRankTable, SHORT_MERGE_MAX, bpe_merge_symbols_by_rank,
     bpe_merge_symbols_ranked, bpe_merge_symbols_ranked_slice, bpe_merge_symbols_short_scalar,
     bpe_merge_symbols_with_scratch, simple_bpe_merge,
 };
-#[cfg(target_arch = "aarch64")]
-use crate::bpe::bpe_merge_symbols_short_neon;
 use crate::pretokenize::{
     FastCl100kPretokenizer, FastDeepSeekV3Pretokenizer, FastOlmo3Pretokenizer,
-    FastQwen2Pretokenizer, FastQwen35Pretokenizer, FastR50kPretokenizer, PRETOKEN_CHUNK,
-    Pretoken, PretokenSpans, PretokenizerType, SpanBatch, pack_pretoken_key, pretoken_key_hash,
+    FastQwen2Pretokenizer, FastQwen35Pretokenizer, FastR50kPretokenizer, PRETOKEN_CHUNK, Pretoken,
+    PretokenSpans, PretokenizerType, SpanBatch, pack_pretoken_key, pretoken_key_hash,
 };
 use crate::token::TokenId;
 use eyre::Result;
@@ -199,13 +199,10 @@ const VAL_SPILL: u64 = 0x80;
 fn pack_val_inline(symbols: &[TokenId]) -> Option<(u64, u64)> {
     match *symbols {
         [a] if a.0 < (1 << 24) => Some((1 | ((a.0 as u64) << 8), 0)),
-        [a, b] if a.0 < (1 << 24) => {
-            Some((2 | ((a.0 as u64) << 8) | ((b.0 as u64) << 32), 0))
+        [a, b] if a.0 < (1 << 24) => Some((2 | ((a.0 as u64) << 8) | ((b.0 as u64) << 32), 0)),
+        [a, b, c] if a.0 < (1 << 24) => {
+            Some((3 | ((a.0 as u64) << 8) | ((b.0 as u64) << 32), c.0 as u64))
         }
-        [a, b, c] if a.0 < (1 << 24) => Some((
-            3 | ((a.0 as u64) << 8) | ((b.0 as u64) << 32),
-            c.0 as u64,
-        )),
         [a, b, c, d] if a.0 < (1 << 24) => Some((
             4 | ((a.0 as u64) << 8) | ((b.0 as u64) << 32),
             c.0 as u64 | ((d.0 as u64) << 32),
@@ -361,7 +358,12 @@ impl Tokenizer {
         byte_remapping: Option<ByteRemapping>,
     ) -> Self {
         let vocab = vocab.into_iter().map(Into::into).collect();
-        Self::from_tables(HashMap::default(), Some(ranked_merges), vocab, byte_remapping)
+        Self::from_tables(
+            HashMap::default(),
+            Some(ranked_merges),
+            vocab,
+            byte_remapping,
+        )
     }
 
     /// Shared construction tail ([`Self::new`], [`Self::new_ranked`] and
@@ -402,10 +404,7 @@ impl Tokenizer {
         );
         // The default budget's split is derived from the just-seeded
         // state, so the seeded table above is the only build.
-        let n_seed = vocab
-            .iter()
-            .filter(|b| (1..=15).contains(&b.len()))
-            .count();
+        let n_seed = vocab.iter().filter(|b| (1..=15).contains(&b.len())).count();
         let cache_budget = Some(CacheBudget::derive(
             Self::DEFAULT_MAX_CACHE_BYTES,
             n_seed,
@@ -465,6 +464,7 @@ impl Tokenizer {
     /// grows it mid-way. Values of 5+ tokens (only possible for
     /// merge-unreachable entries) spill into `token_arena` like any other
     /// miss.
+    #[allow(clippy::too_many_arguments)]
     fn seeded_pretoken_cache(
         vocab: &[Arc<[u8]>],
         byte_remapping: Option<&ByteRemapping>,
@@ -554,11 +554,9 @@ impl Tokenizer {
         bytes: &[u8],
         buf: &mut [TokenId; SHORT_MERGE_MAX],
     ) -> usize {
-        if ignore_merges {
-            if let Some(&id) = vocab_inv.get(bytes) {
-                buf[0] = id;
-                return 1;
-            }
+        if ignore_merges && let Some(&id) = vocab_inv.get(bytes) {
+            buf[0] = id;
+            return 1;
         }
         Self::merge_short(byte_remapping, pair_ranks, merges, bytes, buf)
     }
@@ -570,6 +568,7 @@ impl Tokenizer {
     /// [`Self::encode_pretoken_miss`]), keeping the id-as-rank miss
     /// codegen identical to a build without ranked support.
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn seed_symbols_any(
         byte_remapping: Option<&ByteRemapping>,
         pair_ranks: Option<&PairRankTable>,
@@ -581,14 +580,9 @@ impl Tokenizer {
         buf: &mut [TokenId; SHORT_MERGE_MAX],
     ) -> usize {
         match ranked_merges {
-            Some(rm) => Self::seed_symbols_ranked(
-                byte_remapping,
-                rm,
-                ignore_merges,
-                vocab_inv,
-                bytes,
-                buf,
-            ),
+            Some(rm) => {
+                Self::seed_symbols_ranked(byte_remapping, rm, ignore_merges, vocab_inv, bytes, buf)
+            }
             None => Self::seed_symbols(
                 byte_remapping,
                 pair_ranks,
@@ -610,11 +604,9 @@ impl Tokenizer {
         bytes: &[u8],
         buf: &mut [TokenId; SHORT_MERGE_MAX],
     ) -> usize {
-        if ignore_merges {
-            if let Some(&id) = vocab_inv.get(bytes) {
-                buf[0] = id;
-                return 1;
-            }
+        if ignore_merges && let Some(&id) = vocab_inv.get(bytes) {
+            buf[0] = id;
+            return 1;
         }
         let n = bytes.len();
         debug_assert!((1..SHORT_MERGE_MAX).contains(&n));
@@ -910,6 +902,8 @@ impl Tokenizer {
 
     /// Bound the total memory of the encode caches (short pretoken table
     /// + long-pretoken map + token arena), or remove the bound with
+    ///
+    ///
     /// `None`. The default is `Some(`[`Self::DEFAULT_MAX_CACHE_BYTES`]`)`,
     /// applied as part of construction.
     ///
@@ -951,8 +945,11 @@ impl Tokenizer {
         self.token_arena = Vec::new();
         self.pretoken_cache_long = HashMap::with_hasher(rustc_hash::FxBuildHasher {});
         self.reseed_cache();
-        self.cache_budget =
-            Some(CacheBudget::derive(total_bytes, n_seed, self.token_arena.len()));
+        self.cache_budget = Some(CacheBudget::derive(
+            total_bytes,
+            n_seed,
+            self.token_arena.len(),
+        ));
     }
 
     /// The configured cache budget in bytes; `None` when unbounded.
@@ -1175,7 +1172,11 @@ impl Tokenizer {
                 .iter()
                 .map(|(&key, &(_, rank))| ((key >> 32) as u32, key as u32, rank))
                 .collect(),
-            None => self.merges.iter().map(|(&(a, b), &m)| (a.0, b.0, m.0)).collect(),
+            None => self
+                .merges
+                .iter()
+                .map(|(&(a, b), &m)| (a.0, b.0, m.0))
+                .collect(),
         };
         ranked.sort_unstable_by_key(|&(.., priority)| priority);
         ranked
@@ -1249,7 +1250,11 @@ impl Tokenizer {
                 Some((end, id, _, rstrip)) => {
                     f(self, Piece::Added(id));
                     // An rstrip added token absorbs the whitespace after it.
-                    pos = if rstrip { end + trim_ws_start(&bytes[end..]) } else { end };
+                    pos = if rstrip {
+                        end + trim_ws_start(&bytes[end..])
+                    } else {
+                        end
+                    };
                 }
                 None => break,
             }
@@ -1278,6 +1283,24 @@ impl Tokenizer {
             Piece::Segment(segment, _) => this.memoized_encode_flat(pt.pretokenize(segment), out),
             Piece::Added(id) => out.push(id.0),
         });
+    }
+
+    /// Encode after rejecting any occurrence matched by a caller-supplied
+    /// forbidden-token matcher. The normal encode path does not construct or
+    /// consult this matcher, so enabling this policy is opt-in.
+    pub fn encode_with_forbidden(
+        &mut self,
+        bytes: &[u8],
+        matcher: &crate::api::SubstringMatcher,
+    ) -> eyre::Result<Vec<TokenId>> {
+        if let Some((pattern, start, end)) = matcher.find(bytes) {
+            return Err(eyre::eyre!(
+                "forbidden token pattern {pattern} matched byte range {start}..{end}"
+            ));
+        }
+        let mut out = Vec::new();
+        self.encode_with_added_tokens(bytes, |tokens| out.extend_from_slice(tokens));
+        Ok(out)
     }
 
     /// For each pretoken in the input iterator, looks up the string in the
@@ -1489,8 +1512,7 @@ impl Tokenizer {
                         // tokens at `start`; the arena only shrinks in a
                         // generation wipe, which also clears every cache
                         // entry referencing it.
-                        let toks =
-                            unsafe { self.token_arena.get_unchecked(start..start + len) };
+                        let toks = unsafe { self.token_arena.get_unchecked(start..start + len) };
                         out.extend_from_slice(token_ids_as_u32s(toks));
                     }
                 }
@@ -1504,9 +1526,8 @@ impl Tokenizer {
                 Some(&(offset, len)) => {
                     let start = offset as usize;
                     // SAFETY: as above.
-                    let toks = unsafe {
-                        self.token_arena.get_unchecked(start..start + len as usize)
-                    };
+                    let toks =
+                        unsafe { self.token_arena.get_unchecked(start..start + len as usize) };
                     out.extend_from_slice(token_ids_as_u32s(toks));
                 }
                 None => self.encode_pretoken_miss(bytes, 0, 0, 0, out),
@@ -1529,7 +1550,10 @@ impl Tokenizer {
         slot: usize,
         out: &mut Vec<u32>,
     ) {
-        let rm = self.ranked_merges.clone().expect("caller checked ranked_merges");
+        let rm = self
+            .ranked_merges
+            .clone()
+            .expect("caller checked ranked_merges");
         if key != 0 {
             let mut buf = [TokenId(0); SHORT_MERGE_MAX];
             let n = Self::seed_symbols_ranked(
@@ -1865,7 +1889,11 @@ mod tests {
                     .merges
                     .get(&(TokenId(a), TokenId(b)))
                     .map_or(u32::MAX, |m| m.0);
-                assert_eq!(table.rank(TokenId(a), TokenId(b)), expected, "pair ({a}, {b})");
+                assert_eq!(
+                    table.rank(TokenId(a), TokenId(b)),
+                    expected,
+                    "pair ({a}, {b})"
+                );
             }
         }
 
@@ -1976,6 +2004,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/tokenizers/r50k_base.tiktoken"]
     fn test_merges_from_vocab() {
         use base64::prelude::*;
         let mut buf = String::new();
@@ -1992,7 +2021,7 @@ mod tests {
                 let (base64_token, id_str) = line.split_once(' ').unwrap();
                 let id = id_str.trim().parse::<u32>().unwrap();
                 assert!(id == i as u32);
-                
+
                 BASE64_STANDARD.decode(base64_token).unwrap()
             })
             .collect();
@@ -2024,6 +2053,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/tokenizers/r50k_base.tiktoken"]
     fn basic_tokenization() {
         let text = "This is a test string. Please tokenize it!";
         let data_dir = std::env::home_dir().unwrap().join("data");
@@ -2057,7 +2087,10 @@ mod tests {
         let mut tok = if ranked {
             let mut rm = RankedMerges::default();
             for (rank, &(a, b, id)) in pairs.iter().enumerate() {
-                rm.insert(crate::bpe::ranked_merge_key(a, b), (TokenId(id), rank as u32));
+                rm.insert(
+                    crate::bpe::ranked_merge_key(a, b),
+                    (TokenId(id), rank as u32),
+                );
             }
             Tokenizer::new_ranked(rm, vocab, None)
         } else {
@@ -2090,7 +2123,13 @@ mod tests {
             (t(b'e'), t(b'r'), 262),
         ];
         let extra = [
-            b"th".as_slice(), b"the", b"an", b"and", b"in", b"ing", b"er",
+            b"th".as_slice(),
+            b"the",
+            b"an",
+            b"and",
+            b"in",
+            b"ing",
+            b"er",
         ]
         .map(<[u8]>::to_vec)
         .to_vec();
@@ -2111,7 +2150,7 @@ mod tests {
     ) -> Vec<u8> {
         let mut out = Vec::new();
         for _ in 0..n {
-            out.push(b' ');
+            out.extend_from_slice(b" ");
             for _ in 0..len {
                 out.push(alphabet[(rng.next_u64() % alphabet.len() as u64) as usize]);
             }
@@ -2135,11 +2174,17 @@ mod tests {
     fn budget_test_corpus(n_words: usize, seed: u64) -> Vec<u8> {
         let mut rng = test_util::XorShift64(seed);
         let common: [&str; 20] = [
-            "the", "and", "ing", "her", "that", "with", "for", "was", "his", "not", "this",
-            "but", "from", "they", "she", "which", "were", "been", "have", "their",
+            "the", "and", "ing", "her", "that", "with", "for", "was", "his", "not", "this", "but",
+            "from", "they", "she", "which", "were", "been", "have", "their",
         ];
         let unicode: [&str; 7] = [
-            "世界", "café", "naïve", "🦀🔥", "héllo", "Übung", "переменная",
+            "世界",
+            "café",
+            "naïve",
+            "🦀🔥",
+            "héllo",
+            "Übung",
+            "переменная",
         ];
         let mut out: Vec<u8> = Vec::new();
         for i in 0..n_words {
@@ -2244,7 +2289,10 @@ mod tests {
             let (short_len, short_cap, _, _, long_key_bytes, arena_len, _) =
                 budgeted.cache_mem_stats();
             let b = budgeted.cache_budget.as_ref().unwrap();
-            assert!(short_cap <= short_slots, "short table grew past its ceiling");
+            assert!(
+                short_cap <= short_slots,
+                "short table grew past its ceiling"
+            );
             assert!(short_len * 4 <= short_cap * 3, "short table past 3/4 load");
             assert!(
                 arena_len <= arena_entries + b.max_encoding + 256,
@@ -2286,7 +2334,9 @@ mod tests {
     /// doubled so wipes scale with distinct-pretokens / headroom.
     #[test]
     fn budgeted_wipe_headroom_near_seed_boundary() {
-        let extra = (0..48_500u32).map(|i| format!("v{i:05}").into_bytes()).collect();
+        let extra = (0..48_500u32)
+            .map(|i| format!("v{i:05}").into_bytes())
+            .collect();
         let mut tok = synth_tokenizer(extra, &[], &[], false);
         tok.set_max_cache_bytes(Some(4 << 20));
         let short_slots = tok.cache_budget.as_ref().unwrap().short_slots;
@@ -2306,9 +2356,15 @@ mod tests {
 
         let gens = wipe_gens(&tok);
         assert!(gens >= 1, "corpus no longer fills the table");
-        assert!(gens <= 10, "wipe-thrash: {gens} wipes for ~124k distinct pretokens");
+        assert!(
+            gens <= 10,
+            "wipe-thrash: {gens} wipes for ~124k distinct pretokens"
+        );
         let (_, short_cap, ..) = tok.cache_mem_stats();
-        assert_eq!(short_cap, short_slots, "a wiping table sits exactly at its ceiling");
+        assert_eq!(
+            short_cap, short_slots,
+            "a wiping table sits exactly at its ceiling"
+        );
     }
 
     /// GIANT PRETOKEN: a recurring pretoken whose encoding alone exceeds
@@ -2371,7 +2427,10 @@ mod tests {
         // sub-budget sits at its seed-derived floor.
         tok.set_max_cache_bytes(Some(2 << 20));
         let stale_arena = tok.cache_budget.as_ref().unwrap().arena_entries;
-        assert!(stale_arena < 8192, "premise: floor-bound arena sub-budget, got {stale_arena}");
+        assert!(
+            stale_arena < 8192,
+            "premise: floor-bound arena sub-budget, got {stale_arena}"
+        );
 
         // 2000 added tokens whose 11-byte contents seed as 11-token
         // arena spills: 22k entries, far past the stale 4096 floor.
@@ -2422,25 +2481,38 @@ mod tests {
         // The fixture runs a loader-shaped sequence: constructor,
         // set_pretokenizer_type, add_special_tokens.
         let mut tok = budget_test_tokenizer(false);
-        assert_eq!(tok.max_cache_bytes(), Some(Tokenizer::DEFAULT_MAX_CACHE_BYTES));
+        assert_eq!(
+            tok.max_cache_bytes(),
+            Some(Tokenizer::DEFAULT_MAX_CACHE_BYTES)
+        );
         assert_eq!(tok.fork().max_cache_bytes(), tok.max_cache_bytes());
         assert_eq!(
             tok.pretoken_cache.capacity(),
             1 << 16,
             "default budget must not presize the table"
         );
-        assert!(tok.token_arena.capacity() < 1 << 20, "eager arena preallocation");
+        assert!(
+            tok.token_arena.capacity() < 1 << 20,
+            "eager arena preallocation"
+        );
         // Loader-phase mutation re-derives the split.
         tok.add_special_tokens([(b"<|extra|>".to_vec(), TokenId(400))]);
         assert_eq!(tok.pretoken_cache.capacity(), 1 << 16);
-        assert_eq!(tok.max_cache_bytes(), Some(Tokenizer::DEFAULT_MAX_CACHE_BYTES));
+        assert_eq!(
+            tok.max_cache_bytes(),
+            Some(Tokenizer::DEFAULT_MAX_CACHE_BYTES)
+        );
 
         // 16 MiB gives a 2^18-slot ceiling to observe growth against;
         // the ceiling-growth mechanics are budget-independent.
         tok.set_max_cache_bytes(Some(16 << 20));
         let ceiling = tok.cache_budget.as_ref().unwrap().short_slots;
         assert_eq!(ceiling, 1 << 18);
-        assert_eq!(tok.pretoken_cache.capacity(), 1 << 16, "budget must not presize either");
+        assert_eq!(
+            tok.pretoken_cache.capacity(),
+            1 << 16,
+            "budget must not presize either"
+        );
 
         let mut rng = test_util::XorShift64(0xCE11_1216_5107_C047);
         let mut out: Vec<u32> = Vec::new();
@@ -2453,12 +2525,20 @@ mod tests {
         // (the ceiling's 196k threshold is unreachable with 3 letters).
         tok.encode_with_added_tokens_flat(&random_words(&mut rng, 600_000, 3, MIXED), &mut out);
         assert_eq!(wipe_gens(&tok), 0, "wiped below the ceiling");
-        assert_eq!(tok.pretoken_cache.capacity(), ceiling, "must reach the ceiling");
+        assert_eq!(
+            tok.pretoken_cache.capacity(),
+            ceiling,
+            "must reach the ceiling"
+        );
         // ~120k more distinct 4-letter words push load past 3/4 AT the
         // ceiling (spills stay well under the arena sub-budget).
         tok.encode_with_added_tokens_flat(&random_words(&mut rng, 150_000, 4, LOWER), &mut out);
         assert!(wipe_gens(&tok) >= 1, "no wipe at the ceiling");
-        assert_eq!(tok.pretoken_cache.capacity(), ceiling, "wipe must keep the ceiling");
+        assert_eq!(
+            tok.pretoken_cache.capacity(),
+            ceiling,
+            "wipe must keep the ceiling"
+        );
 
         tok.set_max_cache_bytes(None);
         assert_eq!(tok.max_cache_bytes(), None);
@@ -2574,7 +2654,8 @@ mod verify_heavy {
     /// built WITHOUT `find_added_token`, so the Aho-Corasick split itself
     /// is under test, not just mirrored.
     fn join_differential(tok: &mut Tokenizer, corpus: &[u8], label: &str) {
-        let Some((sep, sep_id)) = tok.added_tokens.first().map(|t| (t.content.to_vec(), t.id)) else {
+        let Some((sep, sep_id)) = tok.added_tokens.first().map(|t| (t.content.to_vec(), t.id))
+        else {
             eprintln!("{label}: no added tokens registered; skipping join differential");
             return;
         };
@@ -2642,7 +2723,10 @@ mod verify_heavy {
                 &cached[i..(i + 8).min(cached.len())],
             );
         }
-        assert!(pieces > 0, "{label}: join differential ran on zero pieces (vacuous)");
+        assert!(
+            pieces > 0,
+            "{label}: join differential ran on zero pieces (vacuous)"
+        );
         eprintln!(
             "{label}: join differential ok — {pieces} pieces, {} tokens, sep {:?} id {}",
             cached.len(),
@@ -2665,10 +2749,9 @@ mod verify_heavy {
         let input = &all[..];
 
         let mut cached: Vec<TokenId> = Vec::new();
-        tokenizer
-            .memoized_encode(crate::pretokenize::pretokenize_as_iter(input), |tokens| {
-                cached.extend_from_slice(tokens)
-            });
+        tokenizer.memoized_encode(crate::pretokenize::pretokenize_as_iter(input), |tokens| {
+            cached.extend_from_slice(tokens)
+        });
 
         // Uncached reference: remap bytes and run the plain merge loop.
         let encode_reference = |pretoken: Pretoken| -> Vec<TokenId> {
@@ -2705,10 +2788,18 @@ mod verify_heavy {
     fn verify_gpt2_public_encode_matches_reference_owt_1g() {
         let mut tok = load_hf_bpe(gpt2_path()).expect("load GPT-2 tokenizer");
         let input = load_owt(1_000_000_000);
-        assert!(input.len() > 900_000_000, "corpus too small: {}", input.len());
+        assert!(
+            input.len() > 900_000_000,
+            "corpus too small: {}",
+            input.len()
+        );
         compare_cached_vs_reference(&mut tok, &input, "gpt2-raw-1g", true);
         let mut tok2 = load_hf_bpe(gpt2_path()).unwrap();
-        join_differential(&mut tok2, cut_at_newline(&input, 100_000_000), "gpt2-join-100m");
+        join_differential(
+            &mut tok2,
+            cut_at_newline(&input, 100_000_000),
+            "gpt2-join-100m",
+        );
     }
 
     /// ~200 MB of OWT through the public encode path of every non-GPT2
@@ -2720,7 +2811,11 @@ mod verify_heavy {
     #[ignore = "reads 200 MB of OWT per tokenizer; run explicitly in release mode"]
     fn verify_multi_public_encode_matches_reference_owt_200m() {
         let input = load_owt(200_000_000);
-        assert!(input.len() > 190_000_000, "corpus too small: {}", input.len());
+        assert!(
+            input.len() > 190_000_000,
+            "corpus too small: {}",
+            input.len()
+        );
         let mut ran = 0usize;
         // qwen3_5 is the load-bearing tokenizer here: its vocab has ~200
         // merge-unreachable entries (CJK phrases, " Jap\u{f3}n", …) that
@@ -2757,7 +2852,10 @@ mod verify_heavy {
             join_differential(&mut tok2, cut_at_newline(&input, 25_000_000), name);
             ran += 1;
         }
-        assert!(ran >= 3, "only {ran} tokenizers loaded — expected at least olmo3/qwen2/deepseek_v3");
+        assert!(
+            ran >= 3,
+            "only {ran} tokenizers loaded — expected at least olmo3/qwen2/deepseek_v3"
+        );
     }
 
     /// Regression test for the vocab-seeded cache (commit d39bca2 originally
@@ -2866,7 +2964,15 @@ mod verify_alignment {
         // straddling batch edges, contractions, digit groups.
         let mut inputs: Vec<Vec<u8>> = Vec::new();
         for n in [63usize, 64, 65, 127, 128, 129, 255, 256, 300, 4096] {
-            for fill in [&b"a"[..], b"5", b" ", b"!", b"\n", "\u{e9}".as_bytes(), "\u{597d}".as_bytes()] {
+            for fill in [
+                &b"a"[..],
+                b"5",
+                b" ",
+                b"!",
+                b"\n",
+                "\u{e9}".as_bytes(),
+                "\u{597d}".as_bytes(),
+            ] {
                 let mut v = Vec::new();
                 while v.len() < n {
                     v.extend_from_slice(fill);
@@ -2876,8 +2982,24 @@ mod verify_alignment {
         }
         let mut rng = XorShift64(0x9E37_79B9_7F4A_7C15);
         const PIECES: &[&str] = &[
-            " the", " a", "word", "05", "  ", "\n", "'s", "n't", ",", " \u{e9}t\u{e9}",
-            "\u{597d}\u{597d}", " 123", "...", "\t", " I'm", "\u{2014}", "e", " ",
+            " the",
+            " a",
+            "word",
+            "05",
+            "  ",
+            "\n",
+            "'s",
+            "n't",
+            ",",
+            " \u{e9}t\u{e9}",
+            "\u{597d}\u{597d}",
+            " 123",
+            "...",
+            "\t",
+            " I'm",
+            "\u{2014}",
+            "e",
+            " ",
         ];
         for _ in 0..200 {
             let target = 80 + (rng.next_u64() % 400) as usize;
@@ -2923,7 +3045,10 @@ mod verify_alignment {
                 }
             }
         }
-        eprintln!("alignment invariance: {} inputs x 64 offsets ok", inputs.len());
+        eprintln!(
+            "alignment invariance: {} inputs x 64 offsets ok",
+            inputs.len()
+        );
     }
 }
 
@@ -2946,11 +3071,7 @@ mod walker_edge {
     /// Assert a scheme's pretokens are a contiguous, non-empty, in-bounds
     /// partition of `span` (required for encode correctness; also catches
     /// walkers running past the buffer on truncated UTF-8).
-    fn check_partition<'a>(
-        span: &'a [u8],
-        it: impl Iterator<Item = Pretoken<'a>>,
-        scheme: &str,
-    ) {
+    fn check_partition<'a>(span: &'a [u8], it: impl Iterator<Item = Pretoken<'a>>, scheme: &str) {
         let mut off = 0usize;
         for p in it {
             assert!(
@@ -3100,7 +3221,11 @@ mod walker_edge {
         let mut tok = load_hf_bpe(gpt2_path()).expect("load GPT-2 tokenizer");
         let mut rng = XorShift64(0x243F_6A88_85A3_08D3);
         const CHARS: &[&str] = &["é", "ü", "好", "日", "🙂", "ß", "—", "\u{0301}", "٣", "क"];
-        let iters = if cfg!(debug_assertions) { 2_000 } else { 12_000 };
+        let iters = if cfg!(debug_assertions) {
+            2_000
+        } else {
+            12_000
+        };
         for iter in 0..iters {
             let len = (rng.next_u64() % 65) as usize;
             let pad = (rng.next_u64() % 17) as usize;
@@ -3183,8 +3308,8 @@ mod walker_edge {
     fn walker_edge_length_pretokens() {
         let mut tok = load_hf_bpe(gpt2_path()).expect("load GPT-2 tokenizer");
         let lens: &[usize] = &[
-            1, 2, 7, 8, 14, 15, 16, 17, 31, 32, 63, 64, 65, 127, 128, 255, 256, 4095, 4096,
-            4097, 65_535, 65_536, 65_537, 70_003,
+            1, 2, 7, 8, 14, 15, 16, 17, 31, 32, 63, 64, 65, 127, 128, 255, 256, 4095, 4096, 4097,
+            65_535, 65_536, 65_537, 70_003,
         ];
         let fills: &[&[u8]] = &[
             b"a",
@@ -3204,7 +3329,11 @@ mod walker_edge {
                 if reps == 0 {
                     continue;
                 }
-                let exact = if fill.len() == 1 { n } else { reps * fill.len() };
+                let exact = if fill.len() == 1 {
+                    n
+                } else {
+                    reps * fill.len()
+                };
                 let mut buf: Vec<u8> = Vec::with_capacity(exact);
                 while buf.len() < exact {
                     buf.extend_from_slice(fill);
@@ -3294,8 +3423,7 @@ mod walker_edge {
             match &reference {
                 None => reference = Some(got),
                 Some(r) => assert_eq!(
-                    r,
-                    &got,
+                    r, &got,
                     "round {round}: partition changed between rounds (nondeterminism)"
                 ),
             }

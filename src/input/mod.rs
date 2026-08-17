@@ -76,11 +76,7 @@ pub trait Resource: Sync {
     /// Split into `n` chunk iterators, each yielding documents.
     /// Chunk boundaries are aligned to separator positions so no document
     /// is split across chunks.
-    fn par_document_chunks<'a>(
-        &'a self,
-        separator: &'a [u8],
-        n: usize,
-    ) -> Vec<DocumentIter<'a>> {
+    fn par_document_chunks<'a>(&'a self, separator: &'a [u8], n: usize) -> Vec<DocumentIter<'a>> {
         par_document_chunks(self.as_bytes(), separator, n)
     }
 }

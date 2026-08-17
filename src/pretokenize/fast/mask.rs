@@ -196,10 +196,7 @@ pub(crate) fn ascii_masks(bytes: &[u8], scan: usize) -> AsciiMasks {
                 vceqq_u8(v, vdupq_n_u8(b'\n')),
             );
             // \t (9), \x0b (11), \x0c (12): ascii ws minus \r\n and space.
-            wt[i] = vbicq_u8(
-                vcleq_u8(vsubq_u8(v, vdupq_n_u8(9)), vdupq_n_u8(4)),
-                n[i],
-            );
+            wt[i] = vbicq_u8(vcleq_u8(vsubq_u8(v, vdupq_n_u8(9)), vdupq_n_u8(4)), n[i]);
             hi[i] = vcltzq_s8(vreinterpretq_s8_u8(v));
             ap[i] = vceqq_u8(v, vdupq_n_u8(b'\''));
         }
@@ -244,13 +241,20 @@ pub(crate) fn ascii_masks_avx512(bytes: &[u8], scan: usize) -> AsciiMasks {
         let n = _mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8(b'\r' as i8))
             | _mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8(b'\n' as i8));
         // \t (9), \x0b (11), \x0c (12): ascii ws minus \r\n and space.
-        let wt = _mm512_cmple_epu8_mask(
-            _mm512_sub_epi8(v, _mm512_set1_epi8(9)),
-            _mm512_set1_epi8(4),
-        ) & !n;
+        let wt =
+            _mm512_cmple_epu8_mask(_mm512_sub_epi8(v, _mm512_set1_epi8(9)), _mm512_set1_epi8(4))
+                & !n;
         let hi = _mm512_movepi8_mask(v) as u64;
         let ap = _mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8(b'\'' as i8));
-        AsciiMasks { l, d, s, wt, n, hi, ap }
+        AsciiMasks {
+            l,
+            d,
+            s,
+            wt,
+            n,
+            hi,
+            ap,
+        }
     }
 }
 
@@ -281,9 +285,8 @@ pub(crate) fn ascii_masks_avx2(bytes: &[u8], scan: usize) -> AsciiMasks {
     use std::arch::x86_64::*;
     unsafe {
         // Closures inherit the enclosing fn's target features.
-        let le = |v: __m256i, lim: __m256i| -> __m256i {
-            _mm256_cmpeq_epi8(_mm256_min_epu8(v, lim), v)
-        };
+        let le =
+            |v: __m256i, lim: __m256i| -> __m256i { _mm256_cmpeq_epi8(_mm256_min_epu8(v, lim), v) };
         let mm = |m0: __m256i, m1: __m256i| -> u64 {
             (_mm256_movemask_epi8(m0) as u32 as u64)
                 | ((_mm256_movemask_epi8(m1) as u32 as u64) << 32)
@@ -323,7 +326,15 @@ pub(crate) fn ascii_masks_avx2(bytes: &[u8], scan: usize) -> AsciiMasks {
         let hi = mm(v0, v1); // vpmovmskb takes the sign bit directly
         let apc = _mm256_set1_epi8(b'\'' as i8);
         let ap = mm(_mm256_cmpeq_epi8(v0, apc), _mm256_cmpeq_epi8(v1, apc));
-        AsciiMasks { l, d, s, wt, n, hi, ap }
+        AsciiMasks {
+            l,
+            d,
+            s,
+            wt,
+            n,
+            hi,
+            ap,
+        }
     }
 }
 
@@ -706,7 +717,11 @@ pub(crate) struct MaskState {
 impl MaskState {
     #[inline]
     pub(crate) fn new(pos: usize) -> Self {
-        let scalar_until = if simd_scanner_available() { pos } else { usize::MAX };
+        let scalar_until = if simd_scanner_available() {
+            pos
+        } else {
+            usize::MAX
+        };
         Self {
             pos,
             scan: pos,
@@ -877,6 +892,7 @@ static BIT_POS: [[u16; 8]; 256] = {
 /// slack. Returns the popcount.
 #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
 #[inline(always)]
+#[allow(clippy::needless_range_loop)]
 unsafe fn flatten_bits(m: u64, rel: u16, out: *mut u16) -> usize {
     // Per-octet popcounts (SWAR); one multiply turns them into inclusive
     // prefix sums, and a byte shift makes them exclusive write offsets —
@@ -1082,9 +1098,7 @@ impl MaskState {
             }
             if avx2_scanner_available() {
                 // SAFETY: AVX2 tier + SSE4.2 detected right above.
-                return unsafe {
-                    self.fill_spans_two_phase_avx2_crc::<S>(bytes, batch, prefetch)
-                };
+                return unsafe { self.fill_spans_two_phase_avx2_crc::<S>(bytes, batch, prefetch) };
             }
             // SAFETY: `crc_hash_selected` verified SSE4.2 support.
             return unsafe { self.fill_spans_two_phase_crc::<S>(bytes, batch, prefetch) };
@@ -1192,9 +1206,7 @@ impl MaskState {
         batch: &mut crate::pretokenize::SpanBatch<'a>,
         prefetch: &impl Fn(u64),
     ) -> usize {
-        use crate::pretokenize::{
-            PRETOKEN_CHUNK, fill_span_hash, pack_pretoken_key,
-        };
+        use crate::pretokenize::{PRETOKEN_CHUNK, fill_span_hash, pack_pretoken_key};
         debug_assert!(simd_scanner_available());
         let len = bytes.len();
         let mut pending = self.pos;
@@ -1293,7 +1305,13 @@ impl MaskState {
                 if bad & blive == 0 {
                     // Scribble bound: 128 lanes (VBMI2 tier) / popcount +
                     // 7 (scalar) — see BOUND_BUF's worst-case analysis.
-                    debug_assert!(nb + if X86_TIER == X86_TIER_AVX512_VBMI2 { 128 } else { 72 } <= BOUND_BUF);
+                    debug_assert!(
+                        nb + if X86_TIER == X86_TIER_AVX512_VBMI2 {
+                            128
+                        } else {
+                            72
+                        } <= BOUND_BUF
+                    );
                     nb += unsafe {
                         flatten_bits_dispatch::<X86_TIER>(usable & ulive, rel, bufp.add(nb))
                     };
@@ -1307,7 +1325,13 @@ impl MaskState {
                 loop {
                     let seg_bad = bad & blive;
                     if seg_bad == 0 {
-                        debug_assert!(nb + if X86_TIER == X86_TIER_AVX512_VBMI2 { 128 } else { 72 } <= BOUND_BUF);
+                        debug_assert!(
+                            nb + if X86_TIER == X86_TIER_AVX512_VBMI2 {
+                                128
+                            } else {
+                                72
+                            } <= BOUND_BUF
+                        );
                         nb += unsafe {
                             flatten_bits_dispatch::<X86_TIER>(usable & ulive, rel, bufp.add(nb))
                         };
@@ -1316,7 +1340,13 @@ impl MaskState {
                     }
                     let fb = seg_bad.trailing_zeros();
                     let prefix = usable & ulive & !(u64::MAX << fb);
-                    debug_assert!(nb + if X86_TIER == X86_TIER_AVX512_VBMI2 { 128 } else { 72 } <= BOUND_BUF);
+                    debug_assert!(
+                        nb + if X86_TIER == X86_TIER_AVX512_VBMI2 {
+                            128
+                        } else {
+                            72
+                        } <= BOUND_BUF
+                    );
                     nb += unsafe { flatten_bits_dispatch::<X86_TIER>(prefix, rel, bufp.add(nb)) };
                     let mut p = if nb > 0 {
                         fill_base + unsafe { *bufp.add(nb - 1) } as usize

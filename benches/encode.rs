@@ -12,9 +12,9 @@
 //!             (a HuggingFace repo id: resolved via the standard HF cache,
 //!              downloaded into it on a miss)
 
-use gigatoken_rs::load_tokenizer::hf::{HfTokenizer, load_hf_slice};
-use gigatoken_rs::load_tokenizer::hub;
-use gigatoken_rs::{WorkerPool, encode_docs_ragged, sp_encode_docs_ragged};
+use rs_gigatoken::load_tokenizer::hf::{HfTokenizer, load_hf_slice};
+use rs_gigatoken::load_tokenizer::hub;
+use rs_gigatoken::{WorkerPool, encode_docs_ragged, sp_encode_docs_ragged};
 use std::hint::black_box;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -24,20 +24,41 @@ mod common;
 fn main() {
     common::allow_thp();
     let tokenizer_json =
-        std::env::var("TOKENIZER_JSON").unwrap_or_else(|_| "data/gpt2_tokenizer.json".to_string());
-    let tokenizer_path = {
-        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tokenizer_json);
-        if !path.exists() && hub::looks_like_repo_id(&tokenizer_json) {
-            hub::hub_file(&tokenizer_json, "tokenizer.json", "main")
-                .expect("Could not fetch tokenizer.json from the HuggingFace Hub")
-        } else {
-            path
-        }
+        std::env::var("TOKENIZER_JSON").unwrap_or_else(|_| "openai-community/gpt2".to_string());
+
+    let data = if hub::looks_like_repo_id(&tokenizer_json) {
+        eprintln!("Loading tokenizer.json from HuggingFace Hub repository {tokenizer_json:?}...");
+
+        let tokenizer_path = hub::hub_file(
+            &tokenizer_json,
+            "tokenizer.json",
+            "main",
+        )
+        .unwrap_or_else(|err| {
+            panic!(
+                "Could not fetch tokenizer.json for HuggingFace repository                  {tokenizer_json:?}: {err}"
+            )
+        });
+
+        std::fs::read(&tokenizer_path).unwrap_or_else(|err| {
+            panic!("Could not read downloaded tokenizer.json at {tokenizer_path:?}: {err}")
+        })
+    } else {
+        let tokenizer_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(&tokenizer_json);
+
+        eprintln!("Loading tokenizer from {tokenizer_path:?}...");
+
+        std::fs::read(&tokenizer_path).unwrap_or_else(|err| {
+            panic!("Could not read tokenizer.json at {tokenizer_path:?}: {err}")
+        })
     };
-    eprintln!("Loading tokenizer from {tokenizer_path:?}...");
-    let data = std::fs::read(&tokenizer_path).expect("Could not read tokenizer.json");
     let tokenizer = load_hf_slice(&data).expect("Could not load tokenizer");
 
+    if !common::has_owt() {
+        eprintln!("Skipping benchmark: OpenWebText dataset not found at ~/data/owt_train.txt.");
+        eprintln!("Install ~/data/owt_train.txt to run this benchmark.");
+        return;
+    }
     let input = common::load_owt_input(None);
     let size_gb = input.len() as f64 / 1e9;
 

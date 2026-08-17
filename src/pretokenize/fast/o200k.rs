@@ -48,7 +48,10 @@ impl<'a> FastO200kPretokenizer<'a> {
     /// Resume iteration at a byte offset previously returned by [`Self::pos`].
     #[inline]
     pub fn with_pos(bytes: &'a [u8], pos: usize) -> Self {
-        Self { bytes, state: MaskState::new(pos) }
+        Self {
+            bytes,
+            state: MaskState::new(pos),
+        }
     }
 
     /// Current position as a byte offset into the input.
@@ -267,13 +270,13 @@ pub(crate) mod tests {
     fn o200k_matches_regex_random() {
         use rand::prelude::*;
         let pools: &[&[char]] = &[
-            &['a', 'z', 'é', 'ß', 'ж', 'ا', '한', '日'],      // lower/caseless
-            &['A', 'Z', 'É', 'Ж', 'Ǆ', 'ǅ'],                  // upper/title
-            &['1', '9', '٢', '½', 'Ⅷ', '๕'],                // numbers
-            &[' ', '\t', '\n', '\r', '\u{a0}', '\u{2028}'],   // whitespace
-            &['\u{301}', '\u{5bf}', '\u{93b}', '\u{20dd}'],   // marks
+            &['a', 'z', 'é', 'ß', 'ж', 'ا', '한', '日'], // lower/caseless
+            &['A', 'Z', 'É', 'Ж', 'Ǆ', 'ǅ'],             // upper/title
+            &['1', '9', '٢', '½', 'Ⅷ', '๕'],             // numbers
+            &[' ', '\t', '\n', '\r', '\u{a0}', '\u{2028}'], // whitespace
+            &['\u{301}', '\u{5bf}', '\u{93b}', '\u{20dd}'], // marks
             &['.', ',', '!', '$', '\'', '«', '¡', '€', '☃', '/'], // punct/symbols
-            &['\u{0}', '\u{ad}', '\u{200b}', '\u{e0001}'],    // other (C*)
+            &['\u{0}', '\u{ad}', '\u{200b}', '\u{e0001}'], // other (C*)
             &['s', 't', 'm', 'd', 'l', 'v', 'r', 'e', 'S', 'T', 'L'], // suffix letters
         ];
         let mut rng = StdRng::seed_from_u64(0x93E3_5EED);
@@ -294,6 +297,7 @@ pub(crate) mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn o200k_matches_regex_owt() {
         const SIZE: usize = 5_000_000;
         let input = load_owt_prefix(SIZE);
@@ -320,9 +324,13 @@ pub(crate) mod tests {
                         recent.remove(0);
                     }
                     assert_eq!(
-                        fast_str, re_str,
+                        fast_str,
+                        re_str,
                         "Mismatch at token {token_idx} (byte ~{}).\n  fast:  {:?}\n  regex: {:?}\n  recent tokens: {:?}",
-                        re_match.start(), fast_str, re_str, recent
+                        re_match.start(),
+                        fast_str,
+                        re_str,
+                        recent
                     );
                 }
                 (None, None) => break,

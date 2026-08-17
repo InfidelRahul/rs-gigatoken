@@ -164,7 +164,11 @@ pub(crate) struct ShortPretokenCache {
 impl ShortPretokenCache {
     fn with_pow2_capacity(cap: usize) -> Self {
         debug_assert!(cap.is_power_of_two() && cap >= 2);
-        Self { slots: Slots::new_zeroed(cap), mask: cap - 1, len: 0 }
+        Self {
+            slots: Slots::new_zeroed(cap),
+            mask: cap - 1,
+            len: 0,
+        }
     }
 
     /// A table sized to hold at least `n` entries without growing (same
@@ -239,7 +243,10 @@ impl ShortPretokenCache {
     /// Invalidated by [`Self::insert`] (which may grow the table): callers
     /// must take a fresh view after any insert.
     pub(crate) fn probe_view(&self) -> ProbeView {
-        ProbeView { base: self.slots.ptr.as_ptr(), pair_mask: self.mask & !1 }
+        ProbeView {
+            base: self.slots.ptr.as_ptr(),
+            pair_mask: self.mask & !1,
+        }
     }
 
     /// Look up `key`, walking pairs from its home bucket. Inserts fill the
@@ -520,7 +527,11 @@ mod tests {
         assert_eq!(cache.len(), keys.len());
         for (i, &key) in keys.iter().enumerate() {
             let h = pretoken_key_hash(key);
-            assert_eq!(cache.get_or_slot(key, h), Ok((i as u64, !(i as u64))), "key {i}");
+            assert_eq!(
+                cache.get_or_slot(key, h),
+                Ok((i as u64, !(i as u64))),
+                "key {i}"
+            );
         }
     }
 }

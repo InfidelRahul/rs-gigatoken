@@ -1,4 +1,4 @@
-# Contributing
+# Contributing to rs-gigatoken
 Thank you for your interest in contributing to Gigatoken!
 
 Unfortunately I don't have the capacity to review the large flood of PRs most open source projects are getting in the AI-coding age.
@@ -18,3 +18,7 @@ Optionally, you can also link to a commit in your own fork of the repo to sugges
 In this case, please don't make sweeping changes, and keep your diffs concise and relevant to the issue at hand.
 Be clear about the amount of work you have put into the code you submit in this way, since it can be hard for me to tell at a glance the difference between something slopped together by AI in a few minutes vs a hand-crafted contribution.
 Be clear about shortcomings and let me know if your code is missing some testing or other features before you deem it ready to be merged.
+
+## Development
+
+This repository is Rust-only. Please run `cargo fmt`, `cargo check`, `cargo test`, and `cargo clippy --all-targets --all-features -- -D warnings` before submitting changes.

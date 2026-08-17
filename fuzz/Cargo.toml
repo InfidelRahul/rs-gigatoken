@@ -1,0 +1,19 @@
+[package]
+name = "rs-gigatoken-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+rs-gigatoken = { path = ".." }
+
+[[bin]]
+name = "hf_tokenizer_json"
+path = "fuzz_targets/hf_tokenizer_json.rs"
+test = false
+doc = false
+bench = false

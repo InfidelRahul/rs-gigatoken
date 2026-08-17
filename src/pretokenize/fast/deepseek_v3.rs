@@ -427,10 +427,7 @@ mod tests {
         ];
         let mut pieces: Vec<&str> = vec![s];
         for re in &res {
-            pieces = pieces
-                .iter()
-                .flat_map(|p| split_isolated(re, p))
-                .collect();
+            pieces = pieces.iter().flat_map(|p| split_isolated(re, p)).collect();
         }
         pieces.into_iter().map(str::to_owned).collect()
     }
@@ -541,14 +538,16 @@ mod tests {
     fn deepseek_matches_regex_random() {
         use rand::prelude::*;
         let pools: &[&[char]] = &[
-            &['a', 'Z', 'é', 'ß', 'Ж', 'ا', '한'],           // letters
+            &['a', 'Z', 'é', 'ß', 'Ж', 'ا', '한'],          // letters
             &['1', '9', '٢', '½', 'Ⅷ', '๕'],                // numbers
-            &[' ', '\t', '\n', '\r', '\u{a0}', '\u{2028}'],   // whitespace
-            &['\u{301}', '\u{5bf}', '\u{93b}', '\u{20dd}'],   // marks
-            &['.', ',', '!', '$', '+', '«', '¡', '€', '☃'],  // punct/symbols
-            &['\u{0}', '\u{ad}', '\u{200b}', '\u{e0001}'],    // other (C*)
-            &['一', '龥', 'あ', 'ゟ', '゠', 'ヿ', '゛', '\u{3040}', '・', 'ー'], // CJK ranges
-            &['丂', '日', '本', 'カ', 'な'],                  // more CJK
+            &[' ', '\t', '\n', '\r', '\u{a0}', '\u{2028}'], // whitespace
+            &['\u{301}', '\u{5bf}', '\u{93b}', '\u{20dd}'], // marks
+            &['.', ',', '!', '$', '+', '«', '¡', '€', '☃'], // punct/symbols
+            &['\u{0}', '\u{ad}', '\u{200b}', '\u{e0001}'],  // other (C*)
+            &[
+                '一', '龥', 'あ', 'ゟ', '゠', 'ヿ', '゛', '\u{3040}', '・', 'ー',
+            ], // CJK ranges
+            &['丂', '日', '本', 'カ', 'な'],                // more CJK
         ];
         let mut rng = StdRng::seed_from_u64(0xDEE9_5EEC);
         for round in 0..2000 {
@@ -581,6 +580,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn deepseek_matches_regex_owt() {
         const SIZE: usize = 5_000_000;
         let input = load_owt_prefix(SIZE);

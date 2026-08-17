@@ -252,8 +252,7 @@ fn parse_tokenizer_json(data: &[u8]) -> Result<TokenizerJson> {
 
 fn read_tokenizer_json(path: impl AsRef<Path>) -> Result<TokenizerJson> {
     let path = path.as_ref();
-    let data =
-        std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let data = std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
     parse_tokenizer_json(&data).with_context(|| format!("Failed to parse {}", path.display()))
 }
 
@@ -485,9 +484,9 @@ fn parse_sp_normalizer(n: &NormalizerJson, out: &mut Vec<NormOp>) -> Result<()> 
                 .context("Failed to base64-decode precompiled_charsmap")?;
             let precompiled = spm_precompiled::Precompiled::from(&bytes)
                 .map_err(|e| eyre::eyre!("Failed to parse precompiled_charsmap: {e}"))?;
-            out.push(NormOp::Precompiled(
+            out.push(NormOp::Precompiled(Box::new(
                 crate::bpe::sentencepiece::PrecompiledCharsmap::new(precompiled),
-            ));
+            )));
         }
         other => {
             return Err(eyre::eyre!(
@@ -537,9 +536,7 @@ fn parse_sp_metaspace(
     };
     match pt.kind.as_str() {
         "Metaspace" => Ok(Some(from_metaspace(pt)?)),
-        "Sequence"
-            if pt.pretokenizers.len() == 1 && pt.pretokenizers[0].kind == "Metaspace" =>
-        {
+        "Sequence" if pt.pretokenizers.len() == 1 && pt.pretokenizers[0].kind == "Metaspace" => {
             Ok(Some(from_metaspace(&pt.pretokenizers[0])?))
         }
         // gemma-3/4: `Split` on a literal " " with MergedWithPrevious. The
@@ -552,11 +549,13 @@ fn parse_sp_metaspace(
                 &pt.pattern,
                 Some(PatternJson { literal: Some(l), .. }) if l == " "
             ) && pt.behavior.as_deref() == Some("MergedWithPrevious")
-                && norm_ops.iter().any(|op| matches!(
-                    op,
-                    NormOp::Replace { pattern, content }
-                        if pattern == " " && !content.contains(' ')
-                )) =>
+                && norm_ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        NormOp::Replace { pattern, content }
+                            if pattern == " " && !content.contains(' ')
+                    )
+                }) =>
         {
             Ok(None)
         }
@@ -604,7 +603,9 @@ fn detect_pretokenizer_type(
 
     fn collect_split_regexes<'a>(pt: &'a PreTokenizerJson, out: &mut Vec<&'a str>) {
         if pt.kind == "Split"
-            && let Some(PatternJson { regex: Some(re), .. }) = &pt.pattern
+            && let Some(PatternJson {
+                regex: Some(re), ..
+            }) = &pt.pattern
         {
             out.push(re);
         }
@@ -829,7 +830,7 @@ mod tests {
             (&wordpiece[..], "WordPiece"),
             (&unigram[..], "Unigram"),
             (&untyped_unigram[..], "Unigram (untyped legacy file)"),
-            (&untyped_wordpiece[..], "WordPiece (untyped legacy file)"),
+            (untyped_wordpiece, "WordPiece (untyped legacy file)"),
         ] {
             let err = match parse_tokenizer_json(json) {
                 Ok(_) => panic!("expected {name} to be refused"),
@@ -853,7 +854,10 @@ mod tests {
             Err(e) => e,
         };
         let first_line = err.to_string();
-        assert!(first_line.contains("vocab"), "unhelpful error: {first_line}");
+        assert!(
+            first_line.contains("vocab"),
+            "unhelpful error: {first_line}"
+        );
     }
 
     fn tinyllama_path() -> Option<std::path::PathBuf> {
@@ -890,7 +894,12 @@ mod tests {
         merges: &[(&str, &str)],
         added_tokens_json: &str,
     ) -> Vec<u8> {
-        byte_level_json_with_pretok(extra_vocab, merges, added_tokens_json, r#"{"type": "ByteLevel"}"#)
+        byte_level_json_with_pretok(
+            extra_vocab,
+            merges,
+            added_tokens_json,
+            r#"{"type": "ByteLevel"}"#,
+        )
     }
 
     fn byte_level_json_with_pretok(
@@ -936,11 +945,7 @@ mod tests {
         // Rank 0 produces ID 350, rank 1 produces ID 300: IDs are NOT in
         // rank order, so id-as-rank would apply "a"+"b" (300) before
         // "b"+"c" (350) and produce [300, 99] on "abc".
-        let json = byte_level_json(
-            &[("bc", 350), ("ab", 300)],
-            &[("b", "c"), ("a", "b")],
-            "",
-        );
+        let json = byte_level_json(&[("bc", 350), ("ab", 300)], &[("b", "c"), ("a", "b")], "");
         let HfTokenizer::Bpe(mut tok) = load_hf_slice(&json).unwrap() else {
             panic!("expected ByteLevel BPE");
         };
@@ -951,11 +956,7 @@ mod tests {
 
         // Same merges with IDs in rank order stay on the id-as-rank fast
         // path and agree.
-        let json = byte_level_json(
-            &[("bc", 300), ("ab", 350)],
-            &[("b", "c"), ("a", "b")],
-            "",
-        );
+        let json = byte_level_json(&[("bc", 300), ("ab", 350)], &[("b", "c"), ("a", "b")], "");
         let HfTokenizer::Bpe(mut tok) = load_hf_slice(&json).unwrap() else {
             panic!("expected ByteLevel BPE");
         };

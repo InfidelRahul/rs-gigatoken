@@ -120,7 +120,12 @@ fn letter_run_first<const HAN: bool>(bytes: &[u8], pos: usize) -> Option<(usize,
             (O200kCharClass::Upper, _) => return Some((pos + l, CaseState::U { last_cl_end: 0 })),
             (O200kCharClass::Lower, _) => return Some((pos + l, CaseState::L)),
             (O200kCharClass::Caseless | O200kCharClass::Mark, _) => {
-                return Some((pos + l, CaseState::U { last_cl_end: pos + l }));
+                return Some((
+                    pos + l,
+                    CaseState::U {
+                        last_cl_end: pos + l,
+                    },
+                ));
             }
             _ => {}
         }
@@ -170,7 +175,10 @@ fn scan_case_run<const HAN: bool>(bytes: &[u8], mut pos: usize, mut st: CaseStat
                 }
                 (O200kCharClass::Caseless | O200kCharClass::Mark, _) => {
                     pos += l;
-                    if let CaseState::U { ref mut last_cl_end } = st {
+                    if let CaseState::U {
+                        ref mut last_cl_end,
+                    } = st
+                    {
                         *last_cl_end = pos;
                     }
                 }
@@ -688,7 +696,10 @@ fn ascii_carries<const SLASH: bool, const HAN: bool>(bytes: &[u8], scan: usize) 
 #[inline(never)]
 fn tail_carries<const SLASH: bool, const HAN: bool>(bytes: &[u8], scan: usize) -> OCarries {
     match prev_tail_absorbed::<SLASH, HAN>(bytes, scan) {
-        Some(true) => OCarries { p_abs: true, ..OCarries::default() },
+        Some(true) => OCarries {
+            p_abs: true,
+            ..OCarries::default()
+        },
         Some(false) => {
             let b = bytes[scan - 1];
             let bit = |c: bool| u64::from(c);
@@ -885,7 +896,11 @@ fn o200k_extended_masks<
         // A multi-byte char within two bytes of the batch start.
         // SAFETY: scan > 0, and the batch guard covers pos + 3 <= len.
         let (c1, h1, j1, e1) = unsafe { char_through_o200k::<HAN>(bytes, scan) };
-        let chm = if e1 > scan { (1u64 << (e1 - scan)) - 1 } else { 0 };
+        let chm = if e1 > scan {
+            (1u64 << (e1 - scan)) - 1
+        } else {
+            0
+        };
         cl.cont = chm;
         let (c2v, c2_defer) = if j1 == 0 {
             (0, false)
@@ -1057,7 +1072,11 @@ fn o200k_algebra<
     // class.
     let tcls = if SLASH { am.n | ax.sl } else { am.n };
     let abs_seed = (am.n & ((ob << 1) | po)) | (u64::from(p_abs) & tcls);
-    let abs_t = if abs_seed == 0 { 0 } else { smear_up(abs_seed, tcls) };
+    let abs_t = if abs_seed == 0 {
+        0
+    } else {
+        smear_up(abs_seed, tcls)
+    };
     // Absorbed bytes are no longer punct-run members for any boundary rule.
     let ob_eff = ob & !abs_t;
 
@@ -1081,8 +1100,7 @@ fn o200k_algebra<
     // ASCII text this is the whole rule; see the module docs.)
     let p_sl = p_l & !p_u & !p_cl;
     let b_su = ub & !contm & p_sl;
-    let b_letters =
-        (lb & !contm & !p_l & !p_s & !p_wt & !absorb) | b_su;
+    let b_letters = (lb & !contm & !p_l & !p_s & !p_wt & !absorb) | b_su;
 
     // --- Digits: `\p{N}{1,3}` or `\p{N}` -------------------------------------
     let b_digits = if DIGITS3 && am.d & (am.d >> 1) != 0 {
@@ -1167,7 +1185,11 @@ fn o200k_algebra<
     while runs_n != 0 {
         let f = runs_n.trailing_zeros();
         let below_gap = nonws & ((1u64 << f) - 1);
-        let a = if below_gap == 0 { 0 } else { 64 - below_gap.leading_zeros() };
+        let a = if below_gap == 0 {
+            0
+        } else {
+            64 - below_gap.leading_zeros()
+        };
         let e = (nonws & (u64::MAX << f)).trailing_zeros();
         let run_mask = (u64::MAX << a) & !u64::MAX.unbounded_shl(e);
         b_ws &= !run_mask;
@@ -1323,10 +1345,7 @@ pub(crate) fn batch_masks<
             uv[i] = vcleq_u8(vsubq_u8(v, vdupq_n_u8(b'A')), vdupq_n_u8(25));
             dv[i] = vcleq_u8(vsubq_u8(v, vdupq_n_u8(b'0')), vdupq_n_u8(9));
             sv[i] = vceqq_u8(v, vdupq_n_u8(b' '));
-            wsv[i] = vorrq_u8(
-                sv[i],
-                vcleq_u8(vsubq_u8(v, vdupq_n_u8(9)), vdupq_n_u8(4)),
-            );
+            wsv[i] = vorrq_u8(sv[i], vcleq_u8(vsubq_u8(v, vdupq_n_u8(9)), vdupq_n_u8(4)));
             nv[i] = vorrq_u8(
                 vceqq_u8(v, vdupq_n_u8(b'\r')),
                 vceqq_u8(v, vdupq_n_u8(b'\n')),
@@ -1422,10 +1441,20 @@ pub(crate) unsafe fn batch_masks_x86<
     }
     let (am, ax) = if AVX512 {
         // SAFETY: the caller detected the AVX-512 tier (fn contract).
-        unsafe { (mask::ascii_masks_avx512(bytes, scan), ascii_extra_avx512(bytes, scan)) }
+        unsafe {
+            (
+                mask::ascii_masks_avx512(bytes, scan),
+                ascii_extra_avx512(bytes, scan),
+            )
+        }
     } else {
         // SAFETY: the caller detected the AVX2 tier (fn contract).
-        unsafe { (mask::ascii_masks_avx2(bytes, scan), ascii_extra_avx2(bytes, scan)) }
+        unsafe {
+            (
+                mask::ascii_masks_avx2(bytes, scan),
+                ascii_extra_avx2(bytes, scan),
+            )
+        }
     };
     if am.hi != 0
         || (scan >= 1 && bytes[scan - 1] >= 0x80)
@@ -1468,9 +1497,8 @@ fn ascii_extra_avx512(bytes: &[u8], scan: usize) -> OAsciiExtra {
 fn ascii_extra_avx2(bytes: &[u8], scan: usize) -> OAsciiExtra {
     use std::arch::x86_64::*;
     unsafe {
-        let le = |v: __m256i, lim: __m256i| -> __m256i {
-            _mm256_cmpeq_epi8(_mm256_min_epu8(v, lim), v)
-        };
+        let le =
+            |v: __m256i, lim: __m256i| -> __m256i { _mm256_cmpeq_epi8(_mm256_min_epu8(v, lim), v) };
         let mm = |m0: __m256i, m1: __m256i| -> u64 {
             (_mm256_movemask_epi8(m0) as u32 as u64)
                 | ((_mm256_movemask_epi8(m1) as u32 as u64) << 32)
@@ -1521,9 +1549,21 @@ mod tests {
     #[track_caller]
     fn check_all(buf: &[u8]) {
         for (name, a, b) in [
-            ("o200k", scalar_tokens::<O200kScheme>(buf), mask_tokens::<O200kScheme>(buf)),
-            ("nemotron", scalar_tokens::<NemotronScheme>(buf), mask_tokens::<NemotronScheme>(buf)),
-            ("kimi", scalar_tokens::<KimiScheme>(buf), mask_tokens::<KimiScheme>(buf)),
+            (
+                "o200k",
+                scalar_tokens::<O200kScheme>(buf),
+                mask_tokens::<O200kScheme>(buf),
+            ),
+            (
+                "nemotron",
+                scalar_tokens::<NemotronScheme>(buf),
+                mask_tokens::<NemotronScheme>(buf),
+            ),
+            (
+                "kimi",
+                scalar_tokens::<KimiScheme>(buf),
+                mask_tokens::<KimiScheme>(buf),
+            ),
         ] {
             if a != b {
                 let i = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
@@ -1551,7 +1591,13 @@ mod tests {
             while i < buf.len() {
                 let mut l = 1;
                 if buf[i] >= 0xC2 {
-                    l = if buf[i] < 0xE0 { 2 } else if buf[i] < 0xF0 { 3 } else { 4 };
+                    l = if buf[i] < 0xE0 {
+                        2
+                    } else if buf[i] < 0xF0 {
+                        3
+                    } else {
+                        4
+                    };
                 }
                 let saved: Vec<u8> = buf[i..i + l].to_vec();
                 if saved != vec![b'a'; l] {
@@ -1573,13 +1619,21 @@ mod tests {
         }
         let mut report = format!("(len {}) {:?}", buf.len(), String::from_utf8_lossy(&buf));
         for (name, a, b) in [
-            ("o200k", scalar_tokens::<O200kScheme>(&buf), mask_tokens::<O200kScheme>(&buf)),
+            (
+                "o200k",
+                scalar_tokens::<O200kScheme>(&buf),
+                mask_tokens::<O200kScheme>(&buf),
+            ),
             (
                 "nemotron",
                 scalar_tokens::<NemotronScheme>(&buf),
                 mask_tokens::<NemotronScheme>(&buf),
             ),
-            ("kimi", scalar_tokens::<KimiScheme>(&buf), mask_tokens::<KimiScheme>(&buf)),
+            (
+                "kimi",
+                scalar_tokens::<KimiScheme>(&buf),
+                mask_tokens::<KimiScheme>(&buf),
+            ),
         ] {
             if a != b {
                 let i = a.iter().zip(&b).take_while(|(x, y)| x == y).count();
@@ -1633,17 +1687,108 @@ mod tests {
     #[test]
     fn o200k_family_mask_matches_scalar_fuzz() {
         let pieces: &[&str] = &[
-            "a", "B", "z", "9", "0", " ", "  ", "\n", "\t", "\r\n", "\r", "'", "'s", "'LL",
-            "'t", "!", ".", ",", "(", "/", "//", "/\n", "\n/", "é", "É", "ß", "日", "🎉",
-            "\u{00A0}", "\u{2003}", "word", "Word", "WORD", "camelCase", "12", "1234", "’",
-            "“", "”", "–", "—", "…", "\u{2009}", "\u{200B}", "\u{2028}", "\u{202F}", "×",
-            "÷", "«", "µ", "café", "éé", "naïve", "Α", "α", "а", "А", "Ж", "ж", "ǅ", "\n\n",
-            "!x", "!X", "\tx", " x", " X", "?!", "\u{301}", "ſ", "'ſ", "'\u{301}",
-            "\u{661}\u{662}", "\u{FF11}", "क", "\u{940}", "\u{1D54F}", "€", "™",
-            "…\u{2028}", "AxB", "ABc", "aB", "\u{416}dz", "x'", "n't",
+            "a",
+            "B",
+            "z",
+            "9",
+            "0",
+            " ",
+            "  ",
+            "\n",
+            "\t",
+            "\r\n",
+            "\r",
+            "'",
+            "'s",
+            "'LL",
+            "'t",
+            "!",
+            ".",
+            ",",
+            "(",
+            "/",
+            "//",
+            "/\n",
+            "\n/",
+            "é",
+            "É",
+            "ß",
+            "日",
+            "🎉",
+            "\u{00A0}",
+            "\u{2003}",
+            "word",
+            "Word",
+            "WORD",
+            "camelCase",
+            "12",
+            "1234",
+            "’",
+            "“",
+            "”",
+            "–",
+            "—",
+            "…",
+            "\u{2009}",
+            "\u{200B}",
+            "\u{2028}",
+            "\u{202F}",
+            "×",
+            "÷",
+            "«",
+            "µ",
+            "café",
+            "éé",
+            "naïve",
+            "Α",
+            "α",
+            "а",
+            "А",
+            "Ж",
+            "ж",
+            "ǅ",
+            "\n\n",
+            "!x",
+            "!X",
+            "\tx",
+            " x",
+            " X",
+            "?!",
+            "\u{301}",
+            "ſ",
+            "'ſ",
+            "'\u{301}",
+            "\u{661}\u{662}",
+            "\u{FF11}",
+            "क",
+            "\u{940}",
+            "\u{1D54F}",
+            "€",
+            "™",
+            "…\u{2028}",
+            "AxB",
+            "ABc",
+            "aB",
+            "\u{416}dz",
+            "x'",
+            "n't",
             // Han classes (Kimi): letters, numerals (Nl), symbols (So/Mc)
-            "中", "中文", "々", "〆", "𠀀", "〇", "〡", "㆒", "⼀", "⺀",
-            "\u{16FF0}", "中's", "1〇", "中\n", "!⼀", "中⼀",
+            "中",
+            "中文",
+            "々",
+            "〆",
+            "𠀀",
+            "〇",
+            "〡",
+            "㆒",
+            "⼀",
+            "⺀",
+            "\u{16FF0}",
+            "中's",
+            "1〇",
+            "中\n",
+            "!⼀",
+            "中⼀",
         ];
         let mut state = 0x243F6A8885A308D3u64;
         let mut rng = move || {
@@ -1658,8 +1803,8 @@ mod tests {
             while buf.len() < target {
                 buf.extend_from_slice(pieces[(rng() % pieces.len() as u64) as usize].as_bytes());
             }
-            let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check_all(&buf)))
-                .is_ok();
+            let ok =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| check_all(&buf))).is_ok();
             if !ok {
                 panic!(
                     "round {round} diverged; minimal case: {}",
@@ -1696,7 +1841,10 @@ mod owt_tests {
             pos = scalar_end;
             idx += 1;
         }
-        assert!(st.next_span::<S>(bytes).is_none(), "{scheme} produced extra tokens");
+        assert!(
+            st.next_span::<S>(bytes).is_none(),
+            "{scheme} produced extra tokens"
+        );
         eprintln!("{scheme}: all {idx} tokens match");
     }
 
@@ -1731,4 +1879,3 @@ mod owt_tests {
         check_streaming_all(&input);
     }
 }
-

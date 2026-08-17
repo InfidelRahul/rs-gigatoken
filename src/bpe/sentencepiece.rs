@@ -1,6 +1,7 @@
 use crate::bpe::bpe_merge_symbols_ranked;
 use crate::pretokenize::pack_pretoken_key;
 use crate::token::TokenId;
+use eyre::Result;
 use rustc_hash::FxBuildHasher;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -54,7 +55,7 @@ pub enum NormOp {
     /// `Strip` Unicode whitespace.
     Strip { left: bool, right: bool },
     /// `Precompiled` charsmap (sentencepiece's nmt_nfkc and friends).
-    Precompiled(PrecompiledCharsmap),
+    Precompiled(Box<PrecompiledCharsmap>),
 }
 
 /// A precompiled charsmap plus lookup tables that let ASCII-dominant text
@@ -232,6 +233,8 @@ pub struct AddedTokenSpec {
 /// This struct holds the immutable model data (vocab, merges, added tokens,
 /// normalizer configuration). For encoding, create an [`Encoder`] which
 /// processes text through the normalize → character init → BPE merge pipeline.
+type CrossPiece = (Box<[u8]>, Box<[u8]>);
+
 pub struct SentencePieceBPE {
     /// Merges with explicit rank, keyed by [`crate::bpe::ranked_merge_key`]:
     /// `key(a, b) → (merged, rank)`.
@@ -292,7 +295,7 @@ pub struct SentencePieceBPE {
     /// boundary (a merge result is always a contiguous vocab piece, so
     /// every other boundary is provably safe). Set by
     /// `finalize_speed_paths`; empty under `EveryMark`/`None`.
-    pub(crate) cross_pieces: Vec<(Box<[u8]>, Box<[u8]>)>,
+    pub(crate) cross_pieces: Vec<CrossPiece>,
     /// Bitset over the byte just before a candidate boundary (the last byte
     /// of some `cross_pieces` pre) for a one-load rejection in the scanner.
     pub(crate) cross_prev: [u64; 4],
@@ -474,10 +477,7 @@ impl SentencePieceBPE {
             }
             // The most frequent English punctuation, best value per SIMD
             // compare in the scanner.
-            for (slot, &b) in [b'.', b',', b'"', b')', b';', b':', b'!', b'?']
-                .iter()
-                .enumerate()
-            {
+            for (slot, &b) in b".,\");:!?".iter().enumerate() {
                 let mut safe = [u64::MAX; 4];
                 for x in 0..256usize {
                     if adjacent[x][(b >> 6) as usize] & (1 << (b & 63)) != 0 {
@@ -503,11 +503,11 @@ impl SentencePieceBPE {
     /// crossing piece is too complex for the guard's byte-compare (a ▁ or a
     /// raw space inside `pre`/`post`, whose raw-mode text form varies) or
     /// there are too many, so whole-chunk merging must stay.
-    fn unit_crossing_pieces(&self) -> Option<Vec<(Box<[u8]>, Box<[u8]>)>> {
+    fn unit_crossing_pieces(&self) -> Option<Vec<CrossPiece>> {
         // Beyond this the per-boundary guard stops being "a handful of
         // memcmps on a rare prev byte" and whole-chunk merging is safer.
         const MAX_CROSS_PIECES: usize = 32;
-        let mut out: Vec<(Box<[u8]>, Box<[u8]>)> = Vec::new();
+        let mut out: Vec<CrossPiece> = Vec::new();
         for piece in &self.vocab {
             let Ok(s) = std::str::from_utf8(piece) else {
                 // Byte-fallback pieces are single bytes; they can't hold a ▁.
@@ -597,6 +597,7 @@ impl SentencePieceBPE {
     /// Where no safe cut exists the scan keeps probing forward, so a range
     /// can exceed `target` (in the worst case it is the rest of the
     /// document — output stays exact, only parallelism degrades).
+    #[allow(clippy::single_range_in_vec_init)]
     pub(crate) fn safe_fragment_ranges(
         &self,
         text: &str,
@@ -932,8 +933,7 @@ impl EncodeState {
             long: HashMap::with_hasher(FxBuildHasher),
             symbols: Vec::new(),
             key_buf: Vec::new(),
-            budget: max_bytes
-                .map_or(usize::MAX, |t| t.saturating_sub(FRONT_BYTES).max(1 << 20)),
+            budget: max_bytes.map_or(usize::MAX, |t| t.saturating_sub(FRONT_BYTES).max(1 << 20)),
             long_bytes_used: 0,
             max_encoding: 0,
         }
@@ -1007,6 +1007,21 @@ impl<'a> Encoder<'a> {
         self.model
             .encode_raw_with(&mut self.state, input, &mut result);
         result
+    }
+
+    /// Encode after rejecting any forbidden byte-pattern match. This policy
+    /// is opt-in and therefore adds no matcher work to normal encoding.
+    pub fn encode_raw_with_forbidden(
+        &mut self,
+        input: &str,
+        matcher: &crate::api::SubstringMatcher,
+    ) -> eyre::Result<Vec<TokenId>> {
+        if let Some((pattern, start, end)) = matcher.find(input.as_bytes()) {
+            return Err(eyre::eyre!(
+                "forbidden token pattern {pattern} matched byte range {start}..{end}"
+            ));
+        }
+        Ok(self.encode_raw(input))
     }
 
     /// Like [`Self::encode_raw`], emitting token runs through `f`.
@@ -1579,7 +1594,11 @@ mod tests {
             x % m
         };
         for i in 0..100_000u32 {
-            let len = if i % 17 == 0 { 16 + rand(24) } else { 3 + rand(8) };
+            let len = if i % 17 == 0 {
+                16 + rand(24)
+            } else {
+                3 + rand(8)
+            };
             for _ in 0..len {
                 text.push((b'a' + rand(26) as u8) as char);
             }
@@ -1599,7 +1618,10 @@ mod tests {
         let mut actual = Vec::new();
         model.encode_raw_with(&mut budgeted, &text, &mut actual);
         assert_eq!(actual, expected, "budgeted output diverged");
-        assert!(budgeted.long_bytes_used > 0, "corpus never hit the long map");
+        assert!(
+            budgeted.long_bytes_used > 0,
+            "corpus never hit the long map"
+        );
         // Both saw ~100k distinct units, so a small survivor count proves
         // wipes happened, and the estimate must end up within budget.
         assert!(
@@ -1612,6 +1634,9 @@ mod tests {
             + budgeted.long_bytes_used
             + budgeted.arena.len() * 4;
         let limit = budgeted.budget + budgeted.max_encoding * 4;
-        assert!(used <= limit + 4096, "estimate {used} exceeds budget {limit}");
+        assert!(
+            used <= limit + 4096,
+            "estimate {used} exceeds budget {limit}"
+        );
     }
 }

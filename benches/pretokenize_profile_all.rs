@@ -4,7 +4,7 @@
 //! r50k is also what ByteLevel tokenizers like ModernBERT resolve to. Used
 //! for interleaved A/B runs of the mask-scanner schemes.
 
-use gigatoken_rs::pretokenize::{
+use rs_gigatoken::pretokenize::{
     FastCl100kPretokenizer, FastDeepSeekV3Pretokenizer, FastOlmo3Pretokenizer,
     FastQwen2Pretokenizer, FastQwen35Pretokenizer, FastR50kPretokenizer,
 };
@@ -26,6 +26,11 @@ macro_rules! drive {
 }
 
 fn main() {
+    if !common::has_owt() {
+        eprintln!("Skipping benchmark: OpenWebText dataset not found at ~/data/owt_train.txt.");
+        eprintln!("Install ~/data/owt_train.txt to run this benchmark.");
+        return;
+    }
     let input = common::load_owt_input(None);
     let size_gb = input.len() as f64 / 1e9;
     let buf: &[u8] = &input;

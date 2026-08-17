@@ -39,8 +39,8 @@ use super::{
     decode_cp, is_ascii_ws, is_digit, is_letter, scan_digits_from, scan_letters_from,
     scan_other_from,
 };
-use crate::pretokenize::unicode::{self, CharClass};
 use crate::pretokenize::Pretoken;
+use crate::pretokenize::unicode::{self, CharClass};
 
 // -----------------------------------------------------------------------
 // FastR50kPretokenizer
@@ -86,10 +86,7 @@ fn batch_masks(bytes: &[u8], scan: usize) -> (u64, u64) {
             lv[i] = vcleq_u8(vsubq_u8(lowered, vdupq_n_u8(b'a')), vdupq_n_u8(25));
             dv[i] = vcleq_u8(vsubq_u8(v, vdupq_n_u8(b'0')), vdupq_n_u8(9));
             sv[i] = vceqq_u8(v, vdupq_n_u8(b' '));
-            wsv[i] = vorrq_u8(
-                sv[i],
-                vcleq_u8(vsubq_u8(v, vdupq_n_u8(9)), vdupq_n_u8(4)),
-            );
+            wsv[i] = vorrq_u8(sv[i], vcleq_u8(vsubq_u8(v, vdupq_n_u8(9)), vdupq_n_u8(4)));
             hiv[i] = vcltzq_s8(vreinterpretq_s8_u8(v));
             apv[i] = vceqq_u8(v, vdupq_n_u8(b'\''));
         }
@@ -187,8 +184,7 @@ fn ascii_batch_algebra(
         carries_at(bytes, scan)
     };
 
-    let cont_same =
-        (lb & ((lb << 1) | pl)) | (db & ((db << 1) | pd)) | (ob & ((ob << 1) | po));
+    let cont_same = (lb & ((lb << 1) | pl)) | (db & ((db << 1) | pd)) | (ob & ((ob << 1) | po));
     let after_sp = (s64 << 1) | ps;
     let nb = !wsa & !cont_same & !after_sp;
 
@@ -306,7 +302,11 @@ fn extended_masks(
         // SAFETY: scan > 0 on this branch, and the classifier's
         // scan + 70 <= len batch guard covers pos + 3 <= len.
         let (cls, _lead, end) = unsafe { mask::char_through(bytes, scan, class) };
-        let chm = if end > scan { (1u64 << (end - scan)) - 1 } else { 0 };
+        let chm = if end > scan {
+            (1u64 << (end - scan)) - 1
+        } else {
+            0
+        };
         claim.cont = chm;
         match cls {
             CharClass::Letter => {
@@ -334,9 +334,8 @@ fn extended_masks(
 
     // SAFETY: this classifier's scan + 70 <= len batch guard is exactly
     // `classify_uni_chars`' contract.
-    let uni = unsafe {
-        mask::classify_uni_chars::<true, false>(bytes, scan, hi64 & !claim.cont, class)
-    };
+    let uni =
+        unsafe { mask::classify_uni_chars::<true, false>(bytes, scan, hi64 & !claim.cont, class) };
 
     // Effective per-byte classes: every byte of a classified char carries
     // the char's class, so the same algebra as the pure-ASCII path
@@ -348,8 +347,7 @@ fn extended_masks(
     let contm = claim.cont | uni.cont;
     let resid = claim.resid | uni.resid;
 
-    let cont_same =
-        (lb & ((lb << 1) | pl)) | (db & ((db << 1) | pd)) | (ob & ((ob << 1) | po));
+    let cont_same = (lb & ((lb << 1) | pl)) | (db & ((db << 1) | pd)) | (ob & ((ob << 1) | po));
     let after_sp = (s64 << 1) | ps;
     let nb = !wsb & !cont_same & !after_sp & !contm;
 
@@ -472,11 +470,14 @@ impl<'a> FastR50kPretokenizer<'a> {
     }
 
     /// Resume iteration at a byte offset previously returned by [`Self::pos`].
-    /// Used by the Python bindings, which re-borrow the underlying buffer on
+    /// Used by the public Rust API, which re-borrows the underlying buffer on
     /// every `__next__` call.
     #[inline]
     pub fn with_pos(bytes: &'a [u8], pos: usize) -> Self {
-        Self { bytes, state: MaskState::new(pos) }
+        Self {
+            bytes,
+            state: MaskState::new(pos),
+        }
     }
 
     /// Current position as a byte offset into the input.
@@ -624,6 +625,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires ~/data/owt_train.txt"]
     fn fast_matches_state_machine_owt() {
         let data_dir = std::env::home_dir().unwrap().join("data");
         let all_bytes = std::fs::read(data_dir.join("owt_train.txt"))
@@ -643,7 +645,8 @@ mod tests {
             match (sm.next(), fast.next()) {
                 (Some(a), Some(b)) => {
                     assert_eq!(
-                        a.0, b.0,
+                        a.0,
+                        b.0,
                         "Mismatch at token {idx}: sm={:?} fast={:?}",
                         String::from_utf8_lossy(a.0),
                         String::from_utf8_lossy(b.0),
@@ -712,7 +715,10 @@ mod tests {
     #[cfg(any(target_arch = "aarch64", target_arch = "x86_64"))]
     impl<'a> MaskIter<'a> {
         fn new(bytes: &'a [u8]) -> Self {
-            Self { bytes, state: MaskState::new(0) }
+            Self {
+                bytes,
+                state: MaskState::new(0),
+            }
         }
     }
 
@@ -753,7 +759,10 @@ mod tests {
                 assert!(starts.contains(&i), "usable bit {i} is not a token start");
             }
         }
-        assert!(usable.count_ones() >= 10, "classifier found too few boundaries");
+        assert!(
+            usable.count_ones() >= 10,
+            "classifier found too few boundaries"
+        );
     }
 
     /// Token-for-token differential check of `MaskIter` vs the shipped
@@ -808,11 +817,62 @@ mod tests {
     #[test]
     fn mask_iter_matches_shipped_fuzz() {
         let pieces: &[&str] = &[
-            "a", "B", "z", "9", "0", " ", "  ", "\n", "\t", "\r\n", "'", "'s", "'ll", "'re",
-            "!", ".", ",", "(", "é", "ß", "日", "🎉", "\u{00A0}", "\u{2003}", "word", "12",
-            "’", "’s", "“", "”", "–", "—", "…", "\u{2009}", "\u{200B}", "\u{2028}",
-            "\u{202F}", "×", "÷", "«", "µ", "café", "éé", "naïve", "Α", "а", "ſ", "'ſ",
-            "\u{661}\u{662}", "\u{FF11}", "क", "\u{940}", "\u{1D54F}", "€", "™", "\u{301}",
+            "a",
+            "B",
+            "z",
+            "9",
+            "0",
+            " ",
+            "  ",
+            "\n",
+            "\t",
+            "\r\n",
+            "'",
+            "'s",
+            "'ll",
+            "'re",
+            "!",
+            ".",
+            ",",
+            "(",
+            "é",
+            "ß",
+            "日",
+            "🎉",
+            "\u{00A0}",
+            "\u{2003}",
+            "word",
+            "12",
+            "’",
+            "’s",
+            "“",
+            "”",
+            "–",
+            "—",
+            "…",
+            "\u{2009}",
+            "\u{200B}",
+            "\u{2028}",
+            "\u{202F}",
+            "×",
+            "÷",
+            "«",
+            "µ",
+            "café",
+            "éé",
+            "naïve",
+            "Α",
+            "а",
+            "ſ",
+            "'ſ",
+            "\u{661}\u{662}",
+            "\u{FF11}",
+            "क",
+            "\u{940}",
+            "\u{1D54F}",
+            "€",
+            "™",
+            "\u{301}",
         ];
         let mut state = 0x243F6A8885A308D3u64;
         let mut rng = move || {
@@ -860,7 +920,11 @@ mod tests {
                     }
                 }
                 (None, None) => break,
-                (a, b) => panic!("length mismatch at {idx}: {:?} vs {:?}", a.is_some(), b.is_some()),
+                (a, b) => panic!(
+                    "length mismatch at {idx}: {:?} vs {:?}",
+                    a.is_some(),
+                    b.is_some()
+                ),
             }
             idx += 1;
         }
@@ -886,7 +950,11 @@ mod tests {
                     String::from_utf8_lossy(b.0)
                 ),
                 (None, None) => break,
-                (a, b) => panic!("length mismatch at {idx}: {:?} vs {:?}", a.is_some(), b.is_some()),
+                (a, b) => panic!(
+                    "length mismatch at {idx}: {:?} vs {:?}",
+                    a.is_some(),
+                    b.is_some()
+                ),
             }
             idx += 1;
         }
@@ -1000,10 +1068,7 @@ mod tests {
             }
             (n, acc)
         }
-        assert_eq!(
-            drive(ScalarIter::new(&clean)),
-            drive(MaskIter::new(&clean))
-        );
+        assert_eq!(drive(ScalarIter::new(&clean)), drive(MaskIter::new(&clean)));
         let (mut best_a, mut best_b) = (f64::INFINITY, f64::INFINITY);
         for round in 0..5 {
             let t = std::time::Instant::now();
@@ -1070,7 +1135,14 @@ mod tests {
         let pct = |n: usize| 100.0 * n as f64 / total as f64;
         eprintln!("total tokens: {total}");
         for (name, n) in [
-            "letter", "sp+letter", "sp+digit", "sp+other", "digit", "ws", "apos", "other/hi",
+            "letter",
+            "sp+letter",
+            "sp+digit",
+            "sp+other",
+            "digit",
+            "ws",
+            "apos",
+            "other/hi",
         ]
         .iter()
         .zip(counts)
@@ -1187,7 +1259,11 @@ mod tests {
             let db = t.elapsed().as_secs_f64();
             best_a = best_a.min(da);
             best_b = best_b.min(db);
-            eprintln!("round {round}: A {:.0} MB/s | A' {:.0} MB/s", mb / da, mb / db);
+            eprintln!(
+                "round {round}: A {:.0} MB/s | A' {:.0} MB/s",
+                mb / da,
+                mb / db
+            );
         }
         eprintln!(
             "best: A {:.0} MB/s | A' {:.0} MB/s | ratio {:.3}x",
@@ -1246,5 +1322,4 @@ mod tests {
             best_a / best_b
         );
     }
-
 }

@@ -1,6 +1,6 @@
 //! Minimal HuggingFace Hub file download into the standard HF cache.
 //!
-//! Rust port of the former pure-Python `gigatoken._load.hub`: same endpoint
+//! Rust port of the loader `gigatoken._load.hub`: same endpoint
 //! and URL layout as `huggingface_hub.hf_hub_download`, same token discovery
 //! (HF_TOKEN env var, then the token file written by `hf auth login`), and
 //! the same cache directory resolution, without requiring huggingface_hub,
@@ -32,7 +32,11 @@ pub fn looks_like_repo_id(name: &str) -> bool {
         let Some(first) = chars.next() else {
             return false;
         };
-        let first_ok = if first_alnum { first.is_ascii_alphanumeric() } else { word(first) };
+        let first_ok = if first_alnum {
+            first.is_ascii_alphanumeric()
+        } else {
+            word(first)
+        };
         first_ok && chars.all(word)
     };
     let mut parts = name.split('/');
@@ -50,12 +54,14 @@ fn env_nonempty(key: &str) -> Option<String> {
 /// $HF_HOME, defaulting to $XDG_CACHE_HOME/huggingface then
 /// ~/.cache/huggingface — the root for both the hub cache and the token file.
 fn hf_home() -> PathBuf {
-    env_nonempty("HF_HOME").map(PathBuf::from).unwrap_or_else(|| {
-        env_nonempty("XDG_CACHE_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::home_dir().expect("home dir").join(".cache"))
-            .join("huggingface")
-    })
+    env_nonempty("HF_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            env_nonempty("XDG_CACHE_HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|| std::env::home_dir().expect("home dir").join(".cache"))
+                .join("huggingface")
+        })
 }
 
 /// The standard HuggingFace hub cache directory, resolved like
@@ -88,7 +94,10 @@ pub fn get_hf_token() -> Option<String> {
 
 /// A full git commit hash: cache snapshot directories are named by these.
 fn is_commit_hash(revision: &str) -> bool {
-    revision.len() == 40 && revision.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    revision.len() == 40
+        && revision
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -127,14 +136,20 @@ impl std::str::FromStr for RepoType {
             "model" => Ok(RepoType::Model),
             "dataset" => Ok(RepoType::Dataset),
             "space" => Ok(RepoType::Space),
-            _ => Err(eyre::eyre!("unknown repo_type {s:?}: expected \"model\", \"dataset\", or \"space\"")),
+            _ => Err(eyre::eyre!(
+                "unknown repo_type {s:?}: expected \"model\", \"dataset\", or \"space\""
+            )),
         }
     }
 }
 
 /// The cache directory of a repo (`models--org--name` etc.).
 fn repo_cache_dir(repo_type: RepoType, repo_id: &str) -> PathBuf {
-    hf_hub_cache_dir().join(format!("{}--{}", repo_type.cache_prefix(), repo_id.replace('/', "--")))
+    hf_hub_cache_dir().join(format!(
+        "{}--{}",
+        repo_type.cache_prefix(),
+        repo_id.replace('/', "--")
+    ))
 }
 
 /// Model-repo [`cached_hub_file_in`].
@@ -147,7 +162,12 @@ pub fn cached_hub_file(repo_id: &str, filename: &str, revision: &str) -> Option<
 /// A pure-filesystem lookup — no request is made. `revision` may be a commit
 /// hash (used directly as the snapshot name) or a branch/tag name (followed
 /// through the cached ref).
-pub fn cached_hub_file_in(repo_type: RepoType, repo_id: &str, filename: &str, revision: &str) -> Option<PathBuf> {
+pub fn cached_hub_file_in(
+    repo_type: RepoType,
+    repo_id: &str,
+    filename: &str,
+    revision: &str,
+) -> Option<PathBuf> {
     let repo_dir = repo_cache_dir(repo_type, repo_id);
     let commit_owned;
     let commit = if is_commit_hash(revision) {
@@ -161,23 +181,34 @@ pub fn cached_hub_file_in(repo_type: RepoType, repo_id: &str, filename: &str, re
 }
 
 /// Download failure with a definite HTTP cause, kept as a typed error so the
-/// Python bindings can raise the matching exception (FileNotFoundError for
+/// the public Rust API can raise the matching exception (FileNotFoundError for
 /// 404, PermissionError for 401/403).
 #[derive(Debug)]
 pub enum FetchError {
     /// 404: no such repo, revision, or file.
     NotFound { url: String },
     /// 401/403: private or gated repo.
-    Unauthorized { url: String, status: u16, had_token: bool },
+    Unauthorized {
+        url: String,
+        status: u16,
+        had_token: bool,
+    },
 }
 
 impl fmt::Display for FetchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             FetchError::NotFound { url } => {
-                write!(f, "{url}: HTTP 404 — no such repo with that file, and no such local file either")
+                write!(
+                    f,
+                    "{url}: HTTP 404 — no such repo with that file, and no such local file either"
+                )
             }
-            FetchError::Unauthorized { url, status, had_token } => {
+            FetchError::Unauthorized {
+                url,
+                status,
+                had_token,
+            } => {
                 let token = if *had_token {
                     "the request used the discovered token"
                 } else {
@@ -202,19 +233,31 @@ pub fn hub_file(repo_id: &str, filename: &str, revision: &str) -> Result<PathBuf
 
 /// Path of `filename` from Hub repo `repo_id` at `revision`, served from the
 /// standard HF cache, downloading into it first when absent.
-pub fn hub_file_in(repo_type: RepoType, repo_id: &str, filename: &str, revision: &str) -> Result<PathBuf> {
+pub fn hub_file_in(
+    repo_type: RepoType,
+    repo_id: &str,
+    filename: &str,
+    revision: &str,
+) -> Result<PathBuf> {
     if let Some(path) = cached_hub_file_in(repo_type, repo_id, filename, revision) {
         return Ok(path);
     }
-    download_into_cache(repo_type, repo_id, filename, revision)
-        .wrap_err_with(|| format!("downloading {filename} from Hub repo {repo_id} at revision {revision}"))
+    download_into_cache(repo_type, repo_id, filename, revision).wrap_err_with(|| {
+        format!("downloading {filename} from Hub repo {repo_id} at revision {revision}")
+    })
 }
 
 /// GET `endpoint/repo/resolve/revision/filename` and stream the body into the
 /// cache snapshot named by the `x-repo-commit` response header, recording the
 /// branch ref so later lookups (ours and huggingface_hub's) resolve it.
-fn download_into_cache(repo_type: RepoType, repo_id: &str, filename: &str, revision: &str) -> Result<PathBuf> {
-    let endpoint = env_nonempty("HF_ENDPOINT").unwrap_or_else(|| "https://huggingface.co".to_owned());
+fn download_into_cache(
+    repo_type: RepoType,
+    repo_id: &str,
+    filename: &str,
+    revision: &str,
+) -> Result<PathBuf> {
+    let endpoint =
+        env_nonempty("HF_ENDPOINT").unwrap_or_else(|| "https://huggingface.co".to_owned());
     let url = format!(
         "{}/{}{repo_id}/resolve/{revision}/{filename}",
         endpoint.trim_end_matches('/'),
@@ -234,9 +277,14 @@ fn download_into_cache(repo_type: RepoType, repo_id: &str, filename: &str, revis
     if let Some(token) = &token {
         request = request.header("Authorization", format!("Bearer {token}"));
     }
-    let mut response = request.call().wrap_err_with(|| format!("requesting {url}"))?;
+    let mut response = request
+        .call()
+        .wrap_err_with(|| format!("requesting {url}"))?;
     let header = |resp: &ureq::http::Response<ureq::Body>, name: &str| {
-        resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned)
+        resp.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned)
     };
     let commit = header(&response, "x-repo-commit");
 
@@ -270,7 +318,11 @@ fn download_into_cache(repo_type: RepoType, repo_id: &str, filename: &str, revis
 
     // Stream to a sibling temp file, then rename: concurrent downloaders
     // race benignly and readers never observe a partial file.
-    let tmp = dir.join(format!(".{}.{}.tmp", target.file_name().unwrap().to_string_lossy(), std::process::id()));
+    let tmp = dir.join(format!(
+        ".{}.{}.tmp",
+        target.file_name().unwrap().to_string_lossy(),
+        std::process::id()
+    ));
     let result = (|| -> Result<()> {
         let mut file = std::fs::File::create(&tmp)?;
         io::copy(&mut response.body_mut().as_reader(), &mut file)?;
@@ -295,8 +347,16 @@ fn download_into_cache(repo_type: RepoType, repo_id: &str, filename: &str, revis
 fn ensure_status(url: &str, status: u16, had_token: bool) -> Result<()> {
     match status {
         200..=399 => Ok(()),
-        404 => Err(FetchError::NotFound { url: url.to_owned() }.into()),
-        401 | 403 => Err(FetchError::Unauthorized { url: url.to_owned(), status, had_token }.into()),
+        404 => Err(FetchError::NotFound {
+            url: url.to_owned(),
+        }
+        .into()),
+        401 | 403 => Err(FetchError::Unauthorized {
+            url: url.to_owned(),
+            status,
+            had_token,
+        }
+        .into()),
         _ => Err(eyre::eyre!("{url}: HTTP {status}")),
     }
 }
@@ -308,7 +368,9 @@ fn absolutize(location: &str, base: &str) -> String {
         return location.to_owned();
     }
     let origin_len = base.find("://").map(|i| i + 3).unwrap_or(0);
-    let origin_end = base[origin_len..].find('/').map_or(base.len(), |i| origin_len + i);
+    let origin_end = base[origin_len..]
+        .find('/')
+        .map_or(base.len(), |i| origin_len + i);
     if location.starts_with('/') {
         format!("{}{location}", &base[..origin_end])
     } else {
@@ -337,8 +399,17 @@ mod tests {
 
     #[test]
     fn location_resolution() {
-        assert_eq!(absolutize("https://cdn.example/x", "https://huggingface.co/a/b"), "https://cdn.example/x");
-        assert_eq!(absolutize("/api/x", "https://huggingface.co/a/b"), "https://huggingface.co/api/x");
-        assert_eq!(absolutize("y", "https://huggingface.co/a/b"), "https://huggingface.co/a/y");
+        assert_eq!(
+            absolutize("https://cdn.example/x", "https://huggingface.co/a/b"),
+            "https://cdn.example/x"
+        );
+        assert_eq!(
+            absolutize("/api/x", "https://huggingface.co/a/b"),
+            "https://huggingface.co/api/x"
+        );
+        assert_eq!(
+            absolutize("y", "https://huggingface.co/a/b"),
+            "https://huggingface.co/a/y"
+        );
     }
 }

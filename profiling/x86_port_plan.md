@@ -14,8 +14,8 @@ Codegen evidence below comes from two sources, both with
 - the real fat-LTO bench binary
   (`RUSTFLAGS='-C target-cpu=znver2 -C link-args=-Wl,-undefined,dynamic_lookup'
   cargo build --release --bench encode_st --target x86_64-apple-darwin`,
-  then `objdump -d`). The extra link arg only defers libpython symbols so the
-  cdylib/bench link on a python-less x86 prefix; it does not affect codegen.
+  then `objdump -d`). The extra link arg only defers foreign-runtime symbols so the
+  library/bench link without a foreign-runtime extension; it does not affect codegen.
 
 aarch64 stays bit-identical: every change is `cfg(target_arch = "x86_64")`-
 gated (the one shared cfg edit, the multiply-hash fallback's `not(...)`,
@@ -227,7 +227,7 @@ silently veto MADV_HUGEPAGE). For the EPYC session additionally verify:
 - `/sys/kernel/mm/transparent_hugepage/enabled` is `madvise` or `always`;
 - after warmup, `grep -B3 AnonHugePages /proc/<pid>/smaps | grep -A3 <table
   region>` shows the table actually backed by 2 MiB pages;
-- if the Python bindings path is benched, the prctl is NOT run there — an
+- if the Rust batch API path is benched, the prctl is NOT run there — an
   encode driven from Python inherits the launcher's THP policy. Check how
   the production harness launches.
 

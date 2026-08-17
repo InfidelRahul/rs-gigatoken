@@ -184,8 +184,8 @@ impl PairRankTable {
         // Arc-shared grid. A vocab with byte tokens above the grid keeps
         // correctness — its round-1 lookups just fall through to the flat
         // table.
-        let max_initial = byte_remapping
-            .map_or(255, |br| br.mapping.iter().map(|t| t.0).max().unwrap_or(0));
+        let max_initial =
+            byte_remapping.map_or(255, |br| br.mapping.iter().map(|t| t.0).max().unwrap_or(0));
         let dense_log2 = (32 - max_initial.leading_zeros()).clamp(11, 11);
         let mut dense = vec![u32::MAX; 1usize << (2 * dense_log2)].into_boxed_slice();
 
@@ -216,7 +216,13 @@ impl PairRankTable {
             slots[idx] = (key << PAIR_ID_BITS) | m.0 as u64;
         }
 
-        Some(PairRankTable { dense, dense_log2, slots, mask, shift })
+        Some(PairRankTable {
+            dense,
+            dense_log2,
+            slots,
+            mask,
+            shift,
+        })
     }
 
     /// Merged token ID of the pair `(a, b)`, or `u32::MAX` when it does not
@@ -766,9 +772,7 @@ fn bpe_merge_symbols_short_avx512(
     loop {
         // SAFETY: pr is 16 contiguous u32s (64 bytes); the unaligned-load
         // intrinsic has no alignment requirement.
-        let best = unsafe {
-            _mm512_reduce_min_epu32(_mm512_loadu_si512(pr.as_ptr() as *const _))
-        };
+        let best = unsafe { _mm512_reduce_min_epu32(_mm512_loadu_si512(pr.as_ptr() as *const _)) };
         if best >= NO_MERGE_FLOOR {
             break;
         }
@@ -851,10 +855,7 @@ fn bpe_merge_symbols_short_avx2(
             };
             // Horizontal min of 8 u32 lanes: fold 256 -> 128, then two
             // shuffled mins; lane 0 holds the minimum.
-            let m128 = _mm_min_epu32(
-                _mm256_castsi256_si128(m),
-                _mm256_extracti128_si256::<1>(m),
-            );
+            let m128 = _mm_min_epu32(_mm256_castsi256_si128(m), _mm256_extracti128_si256::<1>(m));
             let m128 = _mm_min_epu32(m128, _mm_shuffle_epi32::<0b01_00_11_10>(m128));
             let m128 = _mm_min_epu32(m128, _mm_shuffle_epi32::<0b00_00_00_01>(m128));
             _mm_cvtsi128_si32(m128) as u32
@@ -894,9 +895,7 @@ fn bpe_merge_symbols_short_avx2(
 
 /// Vocabulary entries as `(id, bytes)` pairs in ID order, skipping IDs with
 /// no assigned content. Shared by both tokenizer types' `vocab_entries`.
-pub(crate) fn vocab_entries(
-    vocab: &[std::sync::Arc<[u8]>],
-) -> impl Iterator<Item = (u32, &[u8])> {
+pub(crate) fn vocab_entries(vocab: &[std::sync::Arc<[u8]>]) -> impl Iterator<Item = (u32, &[u8])> {
     vocab
         .iter()
         .enumerate()
@@ -1057,14 +1056,17 @@ pub fn bpe_merge_symbols_ranked<S: std::hash::BuildHasher>(
                 // Re-check pair with left neighbor
                 let left = prev[pos];
                 if left != NONE
-                    && let Some(&(_, rank)) = merges.get(&ranked_merge_key(token[left], token[pos])) {
-                        heap.push(Reverse((rank, left)));
-                    }
+                    && let Some(&(_, rank)) = merges.get(&ranked_merge_key(token[left], token[pos]))
+                {
+                    heap.push(Reverse((rank, left)));
+                }
                 // Re-check pair with new right neighbor
                 if next[pos] != NONE
-                    && let Some(&(_, rank)) = merges.get(&ranked_merge_key(token[pos], token[next[pos]])) {
-                        heap.push(Reverse((rank, pos)));
-                    }
+                    && let Some(&(_, rank)) =
+                        merges.get(&ranked_merge_key(token[pos], token[next[pos]]))
+                {
+                    heap.push(Reverse((rank, pos)));
+                }
             }
             _ => continue, // Stale entry, skip
         }

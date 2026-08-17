@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use rustc_hash::FxBuildHasher;
 
-use crate::input::decompress;
-use crate::input::jsonl::{JsonLinesReader, JsonLinesSlice};
 use crate::input::MmappedFile;
 use crate::input::Resource;
+use crate::input::decompress;
+use crate::input::jsonl::{JsonLinesReader, JsonLinesSlice};
 use crate::pretokenize::{pretokenize_as_iter, pretokenize_par_bytes};
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,10 @@ pub enum ContentFormat {
 /// Strip compression extension and detect compression type.
 /// Returns (stem without compression ext, compression).
 fn detect_compression(name: &str) -> (&str, Compression) {
-    if let Some(stem) = name.strip_suffix(".zst").or_else(|| name.strip_suffix(".zstd")) {
+    if let Some(stem) = name
+        .strip_suffix(".zst")
+        .or_else(|| name.strip_suffix(".zstd"))
+    {
         (stem, Compression::Zstd)
     } else if let Some(stem) = name.strip_suffix(".gz") {
         (stem, Compression::Gzip)
@@ -52,10 +55,7 @@ fn detect_content_format(stem: &str) -> ContentFormat {
 }
 
 fn detect_format(path: &Path) -> (ContentFormat, Compression) {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("");
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let (stem, compression) = detect_compression(name);
     let content = detect_content_format(stem);
     (content, compression)
@@ -65,7 +65,7 @@ fn detect_format(path: &Path) -> (ContentFormat, Compression) {
 // DocFormat: how a file's bytes split into documents
 // ---------------------------------------------------------------------------
 
-/// How to split a file's bytes into documents. Carried by the Python
+/// How to split a file's bytes into documents. Carried by the Rust
 /// `TextFileSource` / `JsonlFileSource` classes; compression is orthogonal
 /// and always detected from the file extension.
 #[derive(Debug, Clone)]
@@ -186,7 +186,9 @@ pub fn chunk_ranges(
         DocFormat::Jsonl { .. } => cut(&|probe| {
             memchr::memchr(b'\n', &bytes[probe..]).map(|off| (probe + off + 1, probe + off + 1))
         }),
-        DocFormat::Text { separator: Some(sep) } if !sep.is_empty() => {
+        DocFormat::Text {
+            separator: Some(sep),
+        } if !sep.is_empty() => {
             let finder = memchr::memmem::Finder::new(sep);
             cut(&|probe| {
                 finder
@@ -223,10 +225,7 @@ fn pretokenize_plain_text_bytes(
 /// Parallel JSONL pretokenization on a memory-mapped byte slice.
 /// Splits at newline boundaries into N chunks, each chunk processes its
 /// JSONL lines independently.
-fn pretokenize_jsonl_par(
-    bytes: &[u8],
-    field: &str,
-) -> HashMap<Vec<u8>, usize, FxBuildHasher> {
+fn pretokenize_jsonl_par(bytes: &[u8], field: &str) -> HashMap<Vec<u8>, usize, FxBuildHasher> {
     let n_threads = rayon::current_num_threads();
     if bytes.is_empty() {
         return HashMap::default();
@@ -475,11 +474,26 @@ mod tests {
 
     #[test]
     fn test_detect_compression() {
-        assert!(matches!(detect_compression("data.jsonl.zst"), (_, Compression::Zstd)));
-        assert!(matches!(detect_compression("data.jsonl.zstd"), (_, Compression::Zstd)));
-        assert!(matches!(detect_compression("data.txt.gz"), (_, Compression::Gzip)));
-        assert!(matches!(detect_compression("data.jsonl"), (_, Compression::None)));
-        assert!(matches!(detect_compression("data.txt"), (_, Compression::None)));
+        assert!(matches!(
+            detect_compression("data.jsonl.zst"),
+            (_, Compression::Zstd)
+        ));
+        assert!(matches!(
+            detect_compression("data.jsonl.zstd"),
+            (_, Compression::Zstd)
+        ));
+        assert!(matches!(
+            detect_compression("data.txt.gz"),
+            (_, Compression::Gzip)
+        ));
+        assert!(matches!(
+            detect_compression("data.jsonl"),
+            (_, Compression::None)
+        ));
+        assert!(matches!(
+            detect_compression("data.txt"),
+            (_, Compression::None)
+        ));
     }
 
     #[test]
@@ -494,21 +508,51 @@ mod tests {
     #[test]
     fn test_detect_format_combinations() {
         // jsonl + compression
-        assert!(matches!(detect_format(Path::new("data.jsonl.zst")), (ContentFormat::Jsonl, Compression::Zstd)));
-        assert!(matches!(detect_format(Path::new("data.jsonl.zstd")), (ContentFormat::Jsonl, Compression::Zstd)));
-        assert!(matches!(detect_format(Path::new("data.jsonl.gz")), (ContentFormat::Jsonl, Compression::Gzip)));
-        assert!(matches!(detect_format(Path::new("data.jsonl")), (ContentFormat::Jsonl, Compression::None)));
+        assert!(matches!(
+            detect_format(Path::new("data.jsonl.zst")),
+            (ContentFormat::Jsonl, Compression::Zstd)
+        ));
+        assert!(matches!(
+            detect_format(Path::new("data.jsonl.zstd")),
+            (ContentFormat::Jsonl, Compression::Zstd)
+        ));
+        assert!(matches!(
+            detect_format(Path::new("data.jsonl.gz")),
+            (ContentFormat::Jsonl, Compression::Gzip)
+        ));
+        assert!(matches!(
+            detect_format(Path::new("data.jsonl")),
+            (ContentFormat::Jsonl, Compression::None)
+        ));
 
         // txt + compression
-        assert!(matches!(detect_format(Path::new("data.txt.zst")), (ContentFormat::PlainText, Compression::Zstd)));
-        assert!(matches!(detect_format(Path::new("data.txt.gz")), (ContentFormat::PlainText, Compression::Gzip)));
-        assert!(matches!(detect_format(Path::new("data.txt")), (ContentFormat::PlainText, Compression::None)));
+        assert!(matches!(
+            detect_format(Path::new("data.txt.zst")),
+            (ContentFormat::PlainText, Compression::Zstd)
+        ));
+        assert!(matches!(
+            detect_format(Path::new("data.txt.gz")),
+            (ContentFormat::PlainText, Compression::Gzip)
+        ));
+        assert!(matches!(
+            detect_format(Path::new("data.txt")),
+            (ContentFormat::PlainText, Compression::None)
+        ));
 
         // bare compression extension → plain text (unknown inner format)
-        assert!(matches!(detect_format(Path::new("data.zst")), (ContentFormat::PlainText, Compression::Zstd)));
-        assert!(matches!(detect_format(Path::new("data.gz")), (ContentFormat::PlainText, Compression::Gzip)));
+        assert!(matches!(
+            detect_format(Path::new("data.zst")),
+            (ContentFormat::PlainText, Compression::Zstd)
+        ));
+        assert!(matches!(
+            detect_format(Path::new("data.gz")),
+            (ContentFormat::PlainText, Compression::Gzip)
+        ));
 
         // unknown → plain text, no compression
-        assert!(matches!(detect_format(Path::new("data.csv")), (ContentFormat::PlainText, Compression::None)));
+        assert!(matches!(
+            detect_format(Path::new("data.csv")),
+            (ContentFormat::PlainText, Compression::None)
+        ));
     }
 }

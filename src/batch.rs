@@ -10,8 +10,8 @@ use crate::bpe;
 use crate::bpe::madvise_hugepage;
 use crate::input::DocumentIter;
 use crate::input::file_source::{DocFormat, chunk_ranges};
-use std::ops::Range;
 use std::cell::UnsafeCell;
+use std::ops::Range;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock, TryLockError};
 
@@ -34,7 +34,12 @@ pub(crate) fn chunk_target_bytes(total_bytes: usize) -> usize {
 }
 
 /// Append one document's token ids to `ids` and its row length to `lens`.
-pub(crate) fn encode_into(tokenizer: &mut Tokenizer, doc: &[u8], ids: &mut Vec<u32>, lens: &mut Vec<i64>) {
+pub(crate) fn encode_into(
+    tokenizer: &mut Tokenizer,
+    doc: &[u8],
+    ids: &mut Vec<u32>,
+    lens: &mut Vec<i64>,
+) {
     let before = ids.len();
     tokenizer.encode_with_added_tokens_flat(doc, ids);
     lens.push((ids.len() - before) as i64);
@@ -144,11 +149,9 @@ fn encode_chunk(tokenizer: &mut Tokenizer, chunk: &EncodeChunk) -> ChunkTokens {
                 encode_into(tokenizer, doc, &mut ids, &mut lens);
             }
         }
-        EncodeChunk::Region { bytes, format } => {
-            for_each_doc(bytes, format, |doc| {
-                encode_into(tokenizer, doc, &mut ids, &mut lens)
-            })
-        }
+        EncodeChunk::Region { bytes, format } => for_each_doc(bytes, format, |doc| {
+            encode_into(tokenizer, doc, &mut ids, &mut lens)
+        }),
         EncodeChunk::Fragment { bytes, first } => {
             encode_into(tokenizer, bytes, &mut ids, &mut lens);
             continues = !*first;
@@ -398,7 +401,10 @@ impl Committer {
             return None;
         }
         // The commits fault this reservation in while the encode runs.
-        madvise_hugepage(flat.as_mut_ptr() as *mut u8, cap * std::mem::size_of::<u32>());
+        madvise_hugepage(
+            flat.as_mut_ptr() as *mut u8,
+            cap * std::mem::size_of::<u32>(),
+        );
         Some(Self {
             flat: UnsafeCell::new(flat),
             cap,
@@ -629,7 +635,10 @@ fn gather_flat(chunks: Vec<ChunkTokens>) -> Vec<u32> {
     let total: usize = chunks.iter().map(|c| c.ids.len()).sum();
     let mut flat = vec![0u32; total];
     // The parallel copy below faults in the whole buffer.
-    madvise_hugepage(flat.as_mut_ptr() as *mut u8, total * std::mem::size_of::<u32>());
+    madvise_hugepage(
+        flat.as_mut_ptr() as *mut u8,
+        total * std::mem::size_of::<u32>(),
+    );
     let mut rest: &mut [u32] = &mut flat;
     let mut slices = Vec::with_capacity(chunks.len());
     for chunk in &chunks {
@@ -660,7 +669,7 @@ fn gather_flat(chunks: Vec<ChunkTokens>) -> Vec<u32> {
 /// (or rebuilt after a worker panic) capture the new one — a chunk's
 /// tokens would then depend on which slot the handout gave it. Finish all
 /// model mutation before the pool's first encode (the loaders do), or use
-/// a fresh pool after mutating. The Python bindings uphold this by
+/// a fresh pool after mutating. The public Rust API upholds this by
 /// construction: no mutator is exposed after the pyclass is built.
 pub struct WorkerPool {
     slots: OnceLock<Vec<Mutex<Option<Tokenizer>>>>,
@@ -751,7 +760,7 @@ impl WorkerPool {
 /// slices: chunk (splitting oversized documents at pretoken-safe
 /// boundaries), encode with pooled workers, and assemble the ragged result
 /// (one flat id buffer plus per-document row lengths). Public so Rust
-/// benches exercise the identical parallel path as the Python bindings.
+/// benches exercise the identical parallel path as the public Rust API.
 ///
 /// Environment: setting `GIGATOK_NO_LPT` (to any value, empty included)
 /// disables LPT chunk sizing in favor of uniform chunks — token- and
@@ -785,7 +794,7 @@ pub(crate) fn encode_docs_ragged_with(
 /// rayon — required when the caller is a forked child of a process whose
 /// global rayon pool was already built (the pool's threads do not survive
 /// the fork, so injecting work into it would wait forever), and what the
-/// Python bindings' `parallel=false` promises. Token- and order-identical
+/// the public Rust API's `parallel=false` promises. Token- and order-identical
 /// to the parallel path (which `parallel_ragged_matches_serial` checks
 /// against exactly this shape of serial loop).
 pub fn encode_docs_ragged_serial(
@@ -805,6 +814,33 @@ pub fn encode_docs_ragged_serial(
         }
         (ids, lens)
     })
+}
+
+/// Encode a batch and assemble it into a fixed-width matrix using native Rust
+/// padding/truncation options. The returned tuple is `(flat_matrix, width,
+/// lengths)`, where `flat_matrix` is row-major and `lengths` excludes padding
+/// but includes configured prefix/suffix IDs.
+pub fn encode_docs_padded(
+    workers: &WorkerPool,
+    proto: &Tokenizer,
+    docs: &[&[u8]],
+    options: &crate::api::PadTruncate,
+) -> eyre::Result<(Vec<u32>, usize, Vec<usize>)> {
+    let (ids, lengths) = encode_docs_ragged(workers, proto, docs);
+    let lengths: Vec<usize> = lengths.into_iter().map(|n| n as usize).collect();
+    crate::api::pad_truncate_ragged(&ids, &lengths, options)
+}
+
+/// Sequential counterpart of [`encode_docs_padded`].
+pub fn encode_docs_padded_serial(
+    workers: &WorkerPool,
+    proto: &Tokenizer,
+    docs: &[&[u8]],
+    options: &crate::api::PadTruncate,
+) -> eyre::Result<(Vec<u32>, usize, Vec<usize>)> {
+    let (ids, lengths) = encode_docs_ragged_serial(workers, proto, docs);
+    let lengths: Vec<usize> = lengths.into_iter().map(|n| n as usize).collect();
+    crate::api::pad_truncate_ragged(&ids, &lengths, options)
 }
 
 /// Work unit for parallel SentencePiece encoding, mirroring `EncodeChunk`.
@@ -864,10 +900,7 @@ fn sp_build_chunks<'a>(
 /// Encode SentencePiece chunks with a per-chunk Encoder and gather them into
 /// one flat id buffer plus per-document row counts (`row_counts` merges a
 /// continuation fragment's first row into the previous document's row).
-fn sp_encode_chunks(
-    tokenizer: &bpe::SentencePieceBPE,
-    chunks: &[SpChunk],
-) -> (Vec<u32>, Vec<i64>) {
+fn sp_encode_chunks(tokenizer: &bpe::SentencePieceBPE, chunks: &[SpChunk]) -> (Vec<u32>, Vec<i64>) {
     let outs = map_maybe_par(chunks, |chunk| {
         // Reserve the output once from a bytes-per-token estimate on the
         // low side of natural language, with huge pages before the encode's
@@ -931,6 +964,28 @@ pub(crate) fn sp_encode_docs_ragged_serial(
     (ids, lens)
 }
 
+/// Encode SentencePiece documents and assemble a fixed-width matrix.
+pub fn sp_encode_docs_padded(
+    tokenizer: &bpe::SentencePieceBPE,
+    texts: &[&str],
+    options: &crate::api::PadTruncate,
+) -> eyre::Result<(Vec<u32>, usize, Vec<usize>)> {
+    let (ids, lengths) = sp_encode_docs_ragged(tokenizer, texts);
+    let lengths: Vec<usize> = lengths.into_iter().map(|n| n as usize).collect();
+    crate::api::pad_truncate_ragged(&ids, &lengths, options)
+}
+
+/// Sequential SentencePiece counterpart of [`sp_encode_docs_padded`].
+pub(crate) fn sp_encode_docs_padded_serial(
+    tokenizer: &bpe::SentencePieceBPE,
+    texts: &[&str],
+    options: &crate::api::PadTruncate,
+) -> eyre::Result<(Vec<u32>, usize, Vec<usize>)> {
+    let (ids, lengths) = sp_encode_docs_ragged_serial(tokenizer, texts);
+    let lengths: Vec<usize> = lengths.into_iter().map(|n| n as usize).collect();
+    crate::api::pad_truncate_ragged(&ids, &lengths, options)
+}
+
 /// encode_files core for the BPE backend. With no separator each file is one
 /// document (small files are grouped, huge ones split at pretoken-safe
 /// boundaries); otherwise each file is cut into byte regions at document
@@ -964,6 +1019,65 @@ pub(crate) fn encode_files_docs(
 /// file order on the calling thread, never touching rayon. Document
 /// iteration matches the parallel path's chunk regions (`for_each_doc`
 /// over the same format), so the output is token- and order-identical.
+/// Encode one or more files using the same document format. Uncompressed files
+/// are memory-mapped; gzip/zstd files are decompressed into owned buffers.
+/// Parquet input is materialized by row so row order is preserved.
+pub fn encode_files_ragged(
+    workers: &WorkerPool,
+    proto: &Tokenizer,
+    paths: &[std::path::PathBuf],
+    format: &DocFormat,
+) -> std::io::Result<(Vec<u32>, Vec<i64>)> {
+    if matches!(format, DocFormat::Parquet { .. }) {
+        let column = match format {
+            DocFormat::Parquet { column } => column.as_str(),
+            _ => unreachable!(),
+        };
+        let mut owned = Vec::new();
+        for path in paths {
+            owned.extend(crate::input::parquet::read_docs(path, column, true)?);
+        }
+        let refs: Vec<&[u8]> = owned.iter().map(Vec::as_slice).collect();
+        return Ok(encode_docs_ragged(workers, proto, &refs));
+    }
+
+    let loaded: Vec<_> = paths
+        .iter()
+        .map(|path| crate::input::file_source::load_file(path.as_path()))
+        .collect::<std::io::Result<_>>()?;
+    let refs: Vec<&[u8]> = loaded.iter().map(|f| f.as_bytes()).collect();
+    Ok(encode_files_docs(workers, proto, &refs, format))
+}
+
+/// Serial counterpart of [`encode_files_ragged`]. It never touches the global
+/// rayon pool, which makes it safe to call from process-forked workers.
+pub fn encode_files_ragged_serial(
+    workers: &WorkerPool,
+    proto: &Tokenizer,
+    paths: &[std::path::PathBuf],
+    format: &DocFormat,
+) -> std::io::Result<(Vec<u32>, Vec<i64>)> {
+    if matches!(format, DocFormat::Parquet { .. }) {
+        let column = match format {
+            DocFormat::Parquet { column } => column.as_str(),
+            _ => unreachable!(),
+        };
+        let mut owned = Vec::new();
+        for path in paths {
+            owned.extend(crate::input::parquet::read_docs(path, column, false)?);
+        }
+        let refs: Vec<&[u8]> = owned.iter().map(Vec::as_slice).collect();
+        return Ok(encode_docs_ragged_serial(workers, proto, &refs));
+    }
+
+    let loaded: Vec<_> = paths
+        .iter()
+        .map(|path| crate::input::file_source::load_file(path.as_path()))
+        .collect::<std::io::Result<_>>()?;
+    let refs: Vec<&[u8]> = loaded.iter().map(|f| f.as_bytes()).collect();
+    Ok(encode_files_docs_serial(workers, proto, &refs, format))
+}
+
 pub(crate) fn encode_files_docs_serial(
     workers: &WorkerPool,
     proto: &Tokenizer,
@@ -978,7 +1092,9 @@ pub(crate) fn encode_files_docs_serial(
         madvise_hugepage(ids.as_mut_ptr() as *mut u8, ids.capacity() * 4);
         let mut lens = Vec::new();
         for &bytes in files {
-            for_each_doc(bytes, format, |doc| encode_into(tok, doc, &mut ids, &mut lens));
+            for_each_doc(bytes, format, |doc| {
+                encode_into(tok, doc, &mut ids, &mut lens)
+            });
         }
         (ids, lens)
     })
@@ -1175,14 +1291,7 @@ mod tests {
         while big.len() < (6 << 20) {
             big.push_str(block);
         }
-        let texts: Vec<&str> = vec![
-            "short doc <s> one",
-            block,
-            &big,
-            "",
-            "tail doc </s>",
-            block,
-        ];
+        let texts: Vec<&str> = vec!["short doc <s> one", block, &big, "", "tail doc </s>", block];
         for repo in models {
             let Some(path) = crate::test_hub::hf_tokenizer_json(repo) else {
                 eprintln!("Skipping {repo}: tokenizer.json not in the HF cache");
@@ -1420,7 +1529,11 @@ mod tests {
         while !input.is_empty() && std::str::from_utf8(&input).is_err() {
             input.pop();
         }
-        assert!(input.len() > 900_000_000, "corpus too small: {}", input.len());
+        assert!(
+            input.len() > 900_000_000,
+            "corpus too small: {}",
+            input.len()
+        );
 
         // Doc size pattern: small (group), mid, large; every 20th doc is
         // oversized (24 MB) so it splits into Fragment chunks.
@@ -1430,7 +1543,11 @@ mod tests {
         let mut pos = 0usize;
         let mut i = 0usize;
         while pos < input.len() {
-            let want = if i % 20 == 19 { 24 << 20 } else { sizes[i % sizes.len()] };
+            let want = if i % 20 == 19 {
+                24 << 20
+            } else {
+                sizes[i % sizes.len()]
+            };
             let end = (pos + want).min(input.len());
             // Inject the added token into every 7th doc (mid + tail).
             ranges.push((pos, end, i % 7 == 3));

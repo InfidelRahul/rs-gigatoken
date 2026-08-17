@@ -25,6 +25,7 @@ pub fn allow_thp() {
 /// buffers otherwise saturate the dTLB alongside the encode's own tables.
 /// No-op off Linux.
 #[allow(unused_variables, clippy::missing_safety_doc)]
+#[allow(clippy::ptr_arg)]
 pub fn madvise_hugepage_capacity<T>(v: &mut Vec<T>) {
     #[cfg(target_os = "linux")]
     if v.capacity() > 0 {
@@ -44,10 +45,20 @@ pub fn madvise_hugepage_capacity<T>(v: &mut Vec<T>) {
     }
 }
 
+/// Return whether the OpenWebText benchmark dataset is available.
+///
+/// Benchmarks use this before calling `load_owt_input()` so CI can compile
+/// and run the benchmark suite without requiring the large OWT dataset.
+pub fn has_owt() -> bool {
+    std::env::home_dir()
+        .map(|home| home.join("data/owt_train.txt").is_file())
+        .unwrap_or(false)
+}
+
 /// Load the benchmark input from `~/data/owt_train.txt`, truncated to a
 /// UTF-8 character boundary.
 ///
-/// ENCODE_MB caps the input for fast profiling iterations (only that many
+/// `ENCODE_MB` caps the input for fast profiling iterations (only that many
 /// bytes are read from disk, so the read does not dominate a profile of the
 /// encode loop). When it is unset, `default_mb` applies; `None` reads the
 /// whole file.
@@ -68,8 +79,7 @@ pub fn load_owt_input(default_mb: Option<usize>) -> Vec<u8> {
         Some(mb) => {
             use std::io::Read;
             let max_bytes = mb * 1_000_000;
-            let file =
-                std::fs::File::open(&owt_path).expect("Could not open ~/data/owt_train.txt");
+            let file = std::fs::File::open(&owt_path).expect("Could not open ~/data/owt_train.txt");
             let mut data = Vec::with_capacity(max_bytes);
             madvise_hugepage_capacity(&mut data);
             file.take(max_bytes as u64)

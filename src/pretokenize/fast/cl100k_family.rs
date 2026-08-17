@@ -82,8 +82,7 @@ fn ascii_carries(bytes: &[u8], scan: usize) -> Carries {
     let n = b == b'\r' || b == b'\n';
     let c2_os = if scan >= 2 {
         let b2 = bytes[scan - 2];
-        bit(b2 == b' '
-            || (!super::is_letter(b2) && !super::is_digit(b2) && !is_ascii_ws(b2)))
+        bit(b2 == b' ' || (!super::is_letter(b2) && !super::is_digit(b2) && !is_ascii_ws(b2)))
     } else {
         0
     };
@@ -144,10 +143,7 @@ pub(crate) fn batch_masks(
             lv[i] = vcleq_u8(vsubq_u8(lowered, vdupq_n_u8(b'a')), vdupq_n_u8(25));
             dv[i] = vcleq_u8(vsubq_u8(v, vdupq_n_u8(b'0')), vdupq_n_u8(9));
             sv[i] = vceqq_u8(v, vdupq_n_u8(b' '));
-            wsv[i] = vorrq_u8(
-                sv[i],
-                vcleq_u8(vsubq_u8(v, vdupq_n_u8(9)), vdupq_n_u8(4)),
-            );
+            wsv[i] = vorrq_u8(sv[i], vcleq_u8(vsubq_u8(v, vdupq_n_u8(9)), vdupq_n_u8(4)));
             nv[i] = vorrq_u8(
                 vceqq_u8(v, vdupq_n_u8(b'\r')),
                 vceqq_u8(v, vdupq_n_u8(b'\n')),
@@ -191,7 +187,11 @@ pub(crate) fn batch_masks(
             return family_extended_masks(bytes, scan, digits3, class, am);
         }
 
-        let cr = if scan == 0 { Carries::default() } else { ascii_carries(bytes, scan) };
+        let cr = if scan == 0 {
+            Carries::default()
+        } else {
+            ascii_carries(bytes, scan)
+        };
         family_algebra(bytes, scan, digits3, am, cr, mask::UniClasses::default())
     }
 }
@@ -248,7 +248,11 @@ pub(crate) unsafe fn batch_masks_x86<const AVX512: bool>(
         return unsafe { family_extended_masks(bytes, scan, digits3, class, am) };
     }
 
-    let cr = if scan == 0 { Carries::default() } else { ascii_carries(bytes, scan) };
+    let cr = if scan == 0 {
+        Carries::default()
+    } else {
+        ascii_carries(bytes, scan)
+    };
     family_algebra(bytes, scan, digits3, am, cr, mask::UniClasses::default())
 }
 
@@ -299,7 +303,11 @@ fn family_extended_masks(
         // scan + 70 <= len batch guard covers pos + 3 <= len.
         let (c1, j1, e1) = unsafe { mask::char_through(bytes, scan, class) };
         let pb = bytes[scan - 1];
-        let chm = if e1 > scan { (1u64 << (e1 - scan)) - 1 } else { 0 };
+        let chm = if e1 > scan {
+            (1u64 << (e1 - scan)) - 1
+        } else {
+            0
+        };
         cl.cont = chm;
         let c2v = if j1 == 0 {
             0
@@ -384,7 +392,16 @@ fn family_algebra(
     cr: Carries,
     uni: mask::UniClasses,
 ) -> (u64, u64) {
-    let Carries { pl, ps, pwt, po, pws, pd, c2_os, b2b_in } = cr;
+    let Carries {
+        pl,
+        ps,
+        pwt,
+        po,
+        pws,
+        pd,
+        c2_os,
+        b2b_in,
+    } = cr;
     let contm = uni.cont;
     let resid = uni.resid;
 
@@ -430,7 +447,11 @@ fn family_algebra(
     // smear only runs on a nonzero seed (most batches have no
     // punct-adjacent newline).
     let abs_seed = am.n & ((ob << 1) | po);
-    let abs_n = if abs_seed == 0 { 0 } else { smear_up(abs_seed, am.n) };
+    let abs_n = if abs_seed == 0 {
+        0
+    } else {
+        smear_up(abs_seed, am.n)
+    };
     let ws_eff = ws_all & !abs_n;
 
     let mut bad = resid | resid << 1 | resid >> 1;
@@ -525,7 +546,11 @@ fn family_algebra(
     while runs_n != 0 {
         let f = runs_n.trailing_zeros();
         let below_gap = nonws & ((1u64 << f) - 1);
-        let a = if below_gap == 0 { 0 } else { 64 - below_gap.leading_zeros() };
+        let a = if below_gap == 0 {
+            0
+        } else {
+            64 - below_gap.leading_zeros()
+        };
         // First non-ws above f, or 64 for a run ending exactly at the
         // batch edge (only reachable when `nn64`).
         let e = (nonws & (u64::MAX << f)).trailing_zeros();
@@ -680,12 +705,69 @@ mod tests {
     #[test]
     fn family_mask_matches_scalar_fuzz() {
         let pieces: &[&str] = &[
-            "a", "B", "z", "9", "0", " ", "  ", "\n", "\t", "\r\n", "\r", "'", "'s", "'LL",
-            "!", ".", ",", "(", "é", "ß", "日", "🎉", "\u{00A0}", "\u{2003}", "word", "12",
-            "1234", "’", "“", "”", "–", "—", "…", "\u{2009}", "\u{200B}", "\u{2028}",
-            "\u{202F}", "×", "÷", "«", "µ", "café", "éé", "naïve", "Α", "а", "\n\n", "!x",
-            "\tx", " x", "?!", "\u{301}", "ſ", "'ſ", "'\u{301}", "\u{661}\u{662}",
-            "\u{FF11}", "क", "\u{940}", "\u{1D54F}", "€", "™", "…\u{2028}",
+            "a",
+            "B",
+            "z",
+            "9",
+            "0",
+            " ",
+            "  ",
+            "\n",
+            "\t",
+            "\r\n",
+            "\r",
+            "'",
+            "'s",
+            "'LL",
+            "!",
+            ".",
+            ",",
+            "(",
+            "é",
+            "ß",
+            "日",
+            "🎉",
+            "\u{00A0}",
+            "\u{2003}",
+            "word",
+            "12",
+            "1234",
+            "’",
+            "“",
+            "”",
+            "–",
+            "—",
+            "…",
+            "\u{2009}",
+            "\u{200B}",
+            "\u{2028}",
+            "\u{202F}",
+            "×",
+            "÷",
+            "«",
+            "µ",
+            "café",
+            "éé",
+            "naïve",
+            "Α",
+            "а",
+            "\n\n",
+            "!x",
+            "\tx",
+            " x",
+            "?!",
+            "\u{301}",
+            "ſ",
+            "'ſ",
+            "'\u{301}",
+            "\u{661}\u{662}",
+            "\u{FF11}",
+            "क",
+            "\u{940}",
+            "\u{1D54F}",
+            "€",
+            "™",
+            "…\u{2028}",
         ];
         let mut state = 0x243F6A8885A308D3u64;
         let mut rng = move || {
@@ -750,7 +832,11 @@ mod owt_tests {
             let dc = t.elapsed().as_secs_f64();
             best_r = best_r.min(dr);
             best_c = best_c.min(dc);
-            eprintln!("round {round}: r50k {:.0} MB/s | cl100k {:.0} MB/s", mb / dr, mb / dc);
+            eprintln!(
+                "round {round}: r50k {:.0} MB/s | cl100k {:.0} MB/s",
+                mb / dr,
+                mb / dc
+            );
         }
         eprintln!(
             "best: r50k {:.0} MB/s ({:.2} cy/B) | cl100k {:.0} MB/s ({:.2} cy/B) | ratio {:.3}x",
@@ -772,8 +858,8 @@ mod owt_tests {
     #[test]
     #[ignore]
     fn family_deferral_census() {
-        use crate::pretokenize::fast::mask::MaskScheme;
         use crate::pretokenize::fast::cl100k::Cl100kScheme;
+        use crate::pretokenize::fast::mask::MaskScheme;
         use crate::pretokenize::fast::{is_ascii_ws, is_digit};
         let path = std::env::home_dir().unwrap().join("data/owt_train.txt");
         use std::io::Read;
@@ -816,12 +902,27 @@ mod owt_tests {
         }
         let pct = |n: usize| 100.0 * n as f64 / batches as f64;
         eprintln!("batches {batches}, dirty {dirty} ({:.2}%)", pct(dirty));
-        eprintln!("  ws@63, byte64 non-ws ASCII: {ws63_next_nonws} ({:.2}%)", pct(ws63_next_nonws));
-        eprintln!("  ws@63, byte64 ws/hi:        {ws63_next_ws} ({:.2}%)", pct(ws63_next_ws));
-        eprintln!("  digit@63:                   {digit63} ({:.2}%)", pct(digit63));
-        eprintln!("  hi in batch:                {hi_any} ({:.2}%)", pct(hi_any));
+        eprintln!(
+            "  ws@63, byte64 non-ws ASCII: {ws63_next_nonws} ({:.2}%)",
+            pct(ws63_next_nonws)
+        );
+        eprintln!(
+            "  ws@63, byte64 ws/hi:        {ws63_next_ws} ({:.2}%)",
+            pct(ws63_next_ws)
+        );
+        eprintln!(
+            "  digit@63:                   {digit63} ({:.2}%)",
+            pct(digit63)
+        );
+        eprintln!(
+            "  hi in batch:                {hi_any} ({:.2}%)",
+            pct(hi_any)
+        );
         eprintln!("  other:                      {other} ({:.2}%)", pct(other));
-        eprintln!("first-gap bytes: {:.2}%", 100.0 * gap_bytes as f64 / input.len() as f64);
+        eprintln!(
+            "first-gap bytes: {:.2}%",
+            100.0 * gap_bytes as f64 / input.len() as f64
+        );
     }
 
     /// Full-OWT (~12 GB) mask-vs-scalar differential for all four family
@@ -878,7 +979,10 @@ mod tests_support {
             pos = scalar_end;
             idx += 1;
         }
-        assert!(st.next_span::<S>(bytes).is_none(), "{scheme} produced extra tokens");
+        assert!(
+            st.next_span::<S>(bytes).is_none(),
+            "{scheme} produced extra tokens"
+        );
         eprintln!("{scheme}: all {idx} tokens match");
     }
 
