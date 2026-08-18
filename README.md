@@ -41,7 +41,7 @@ Load a Hugging Face `tokenizer.json` and encode text:
 ```rust
 use rs_gigatoken::load_tokenizer::hf::load_hf_bpe;
 
-fn main() -> eyre::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut tokenizer = load_hf_bpe("tokenizer.json")?;
 
     let mut tokens = Vec::new();
@@ -82,7 +82,7 @@ use rs_gigatoken::{
     load_tokenizer::hf::load_hf_bpe,
 };
 
-fn main() -> eyre::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tokenizer = load_hf_bpe("tokenizer.json")?;
     let workers = WorkerPool::new();
 
@@ -101,7 +101,7 @@ fn main() -> eyre::Result<()> {
 
 ## File encoding and output assembly
 
-The Rust API can encode paths directly while preserving the upstream zero-copy
+The Rust API can encode paths directly while preserving the upstream low-copy
 file strategy (mmap for plain files, decompression for `.gz`/`.zst`, and row-wise
 Parquet handling):
 
